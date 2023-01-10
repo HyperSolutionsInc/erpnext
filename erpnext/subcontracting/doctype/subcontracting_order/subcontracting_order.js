@@ -138,6 +138,17 @@ frappe.ui.form.on('Subcontracting Order', {
 	}
 });
 
+frappe.ui.form.on('Subcontracting Order Supplied Item', {
+	sourced_by_supplier: function(frm, cdt, cdn) {
+		let row = locals[cdt][cdn];
+		row.rate = row.amount = 0;
+		frm.refresh_field("supplied_items");
+		frm.call('update_raw_material_cost').then(r => {
+			frm.refresh_field("items");
+		});
+	}
+})
+
 frappe.ui.form.on('Landed Cost Taxes and Charges', {
 	amount: function (frm, cdt, cdn) {
 		frm.events.set_base_amount(frm, cdt, cdn);

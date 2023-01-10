@@ -86,11 +86,11 @@ class SubcontractingOrder(SubcontractingController):
 		for idx, item in enumerate(self.get("service_items")):
 			self.items[idx].service_cost_per_qty = item.amount / self.items[idx].qty
 
+	@frappe.whitelist()
 	def set_missing_values_in_supplied_items(self):
 		for item in self.get("items"):
-			bom = frappe.get_doc("BOM", item.bom)
-			rm_cost = sum(flt(rm_item.amount) for rm_item in bom.items)
-			item.rm_cost_per_qty = rm_cost / flt(bom.quantity)
+			rm_cost = sum(flt(rm_item.get("amount")) for rm_item in self.get("supplied_items"))
+			item.rm_cost_per_qty = rm_cost / flt(item.get("qty"))
 
 	def set_missing_values_in_items(self):
 		total_qty = total = 0
@@ -184,6 +184,16 @@ class SubcontractingOrder(SubcontractingController):
 			frappe.db.set_value(
 				"Subcontracting Order", self.name, "status", status, update_modified=update_modified
 			)
+
+	@frappe.whitelist()
+	def update_raw_material_cost(self):
+		for item in self.get("items"):
+			rm_cost = sum(
+				flt(rm_item.get("amount"))
+				for rm_item in self.get("supplied_items")
+				if not rm_item.get("sourced_by_supplier")
+			)
+			item.rm_cost_per_qty = rm_cost / flt(item.get("qty"))
 
 
 @frappe.whitelist()
