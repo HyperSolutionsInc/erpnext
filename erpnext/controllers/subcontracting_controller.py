@@ -108,7 +108,7 @@ class SubcontractingController(StockController):
 		self.__changed_name = []
 		self.__reference_name = []
 
-		if self.doctype in ["Purchase Order", "Subcontracting Order"] or self.is_new():
+		if self.doctype in ["Purchase Order", "Subcontracting Order"] and self.is_new():
 			self.set(self.raw_material_table, [])
 			return
 
@@ -354,6 +354,7 @@ class SubcontractingController(StockController):
 			"description",
 			"item_name",
 			"stock_uom",
+			"sourced_by_supplier",
 		]:
 			fields.append(f"`tab{doctype}`.`{field}` As {alias_dict.get(field, field)}")
 
@@ -361,7 +362,6 @@ class SubcontractingController(StockController):
 			[doctype, "parent", "=", bom_no],
 			[doctype, "docstatus", "=", 1],
 			["BOM", "item", "=", item_code],
-			[doctype, "sourced_by_supplier", "=", 0],
 		]
 
 		return (
@@ -561,8 +561,9 @@ class SubcontractingController(StockController):
 
 		self.raw_material_table = raw_material_table
 		self.__identify_change_in_item_table()
-		self.__prepare_supplied_items()
-		self.__validate_supplied_items()
+		if self.is_new():
+			self.__prepare_supplied_items()
+			self.__validate_supplied_items()
 
 	def create_raw_materials_supplied(self, raw_material_table="supplied_items"):
 		self.set_materials_for_subcontracted_items(raw_material_table)
@@ -857,28 +858,31 @@ def make_rm_stock_entry(
 				for rm_item in rm_items:
 
 					if rm_item.get("main_item_code") == fg_item_code or rm_item.get("item_code") == fg_item_code:
-						rm_item_code = rm_item.get("rm_item_code")
+						if not rm_item.get("sourced_by_supplier"):
+							rm_item_code = rm_item.get("rm_item_code")
 
-						items_dict = {
-							rm_item_code: {
-								rm_detail_field: rm_item.get("name"),
-								"item_name": rm_item.get("item_name")
-								or item_wh.get(rm_item_code, {}).get("item_name", ""),
-								"description": item_wh.get(rm_item_code, {}).get("description", ""),
-								"qty": rm_item.get("qty")
-								or max(rm_item.get("required_qty") - rm_item.get("total_supplied_qty"), 0),
-								"from_warehouse": rm_item.get("warehouse") or rm_item.get("reserve_warehouse"),
-								"to_warehouse": subcontract_order.supplier_warehouse,
-								"stock_uom": rm_item.get("stock_uom"),
-								"serial_no": rm_item.get("serial_no"),
-								"batch_no": rm_item.get("batch_no"),
-								"main_item_code": fg_item_code,
-								"allow_alternative_item": item_wh.get(rm_item_code, {}).get("allow_alternative_item"),
+							items_dict = {
+								rm_item_code: {
+									rm_detail_field: rm_item.get("name"),
+									"item_name": rm_item.get("item_name")
+									or item_wh.get(rm_item_code, {}).get("item_name", ""),
+									"description": item_wh.get(rm_item_code, {}).get("description", ""),
+									"qty": rm_item.get("qty")
+									or max(rm_item.get("required_qty") - rm_item.get("total_supplied_qty"), 0),
+									"basic_rate": rm_item.get("rate"),
+									"from_warehouse": rm_item.get("warehouse") or rm_item.get("reserve_warehouse"),
+									"to_warehouse": subcontract_order.supplier_warehouse,
+									"stock_uom": rm_item.get("stock_uom"),
+									"serial_no": rm_item.get("serial_no"),
+									"batch_no": rm_item.get("batch_no"),
+									"main_item_code": fg_item_code,
+									"allow_alternative_item": item_wh.get(rm_item_code, {}).get("allow_alternative_item"),
+								}
 							}
-						}
 
-						stock_entry.add_to_stock_entry_detail(items_dict)
+							stock_entry.add_to_stock_entry_detail(items_dict)
 
+			stock_entry.run_method("set_missing_values")
 			if target_doc:
 				return stock_entry
 			else:
