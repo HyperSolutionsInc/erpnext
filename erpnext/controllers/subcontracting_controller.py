@@ -108,7 +108,19 @@ class SubcontractingController(StockController):
 		self.__changed_name = []
 		self.__reference_name = []
 
-		if self.doctype in ["Purchase Order", "Subcontracting Order"] and self.is_new():
+		if self.doctype in ["Purchase Order", "Subcontracting Order"] or self.is_new():
+			if self.doctype == "Subcontracting Order":
+				self.sourced_by_supplier_items = []
+				for supplied_item in self.supplied_items:
+					if supplied_item.sourced_by_supplier:
+						self.sourced_by_supplier_items.append(
+							{
+								"rm_item_code": supplied_item.rm_item_code,
+								"rate": supplied_item.rate,
+								"amount": supplied_item.amount,
+								"sourced_by_supplier": supplied_item.sourced_by_supplier,
+							}
+						)
 			self.set(self.raw_material_table, [])
 			return
 
@@ -555,15 +567,29 @@ class SubcontractingController(StockController):
 			self.__validate_batch_no(row, key)
 			self.__validate_serial_no(row, key)
 
+	def __set_sourced_by_supplier_items(self):
+		if self.sourced_by_supplier_items:
+			for supplied_item in self.supplied_items:
+				for sourced_by_supplier_item in self.sourced_by_supplier_items:
+					if supplied_item.rm_item_code == sourced_by_supplier_item.get("rm_item_code"):
+						supplied_item.update(
+							{
+								"rate": sourced_by_supplier_item.get("rate"),
+								"amount": sourced_by_supplier_item.get("amount"),
+								"sourced_by_supplier": sourced_by_supplier_item.get("sourced_by_supplier"),
+							}
+						)
+
 	def set_materials_for_subcontracted_items(self, raw_material_table):
 		if self.doctype == "Purchase Invoice" and not self.update_stock:
 			return
 
 		self.raw_material_table = raw_material_table
 		self.__identify_change_in_item_table()
-		if self.is_new():
-			self.__prepare_supplied_items()
-			self.__validate_supplied_items()
+		self.__prepare_supplied_items()
+		self.__validate_supplied_items()
+		if self.doctype == "Subcontracting Order":
+			self.__set_sourced_by_supplier_items()
 
 	def create_raw_materials_supplied(self, raw_material_table="supplied_items"):
 		self.set_materials_for_subcontracted_items(raw_material_table)
