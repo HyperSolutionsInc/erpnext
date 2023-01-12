@@ -518,15 +518,15 @@ class TestSubcontractingReceipt(FrappeTestCase):
 		# consumed_qty should be (accepted_qty * (transfered_qty / qty)) = (5 * (20 / 10)) = 10
 		self.assertEqual(scr.supplied_items[0].consumed_qty, 10)
 
-		# # Set Backflush Based On as "BOM"
-		# set_backflush_based_on("BOM")
+		# Set Backflush Based On as "BOM"
+		set_backflush_based_on("BOM")
 
-		# scr.items[0].qty = 6  # Accepted Qty
-		# scr.items[0].rejected_qty = 4
-		# scr.save()
+		scr.items[0].qty = 6  # Accepted Qty
+		scr.items[0].rejected_qty = 4
+		scr.save()
 
-		# # consumed_qty should be (accepted_qty * qty_consumed_per_unit) = (6 * 1) = 6
-		# self.assertEqual(scr.supplied_items[0].consumed_qty, 6)
+		# consumed_qty should be (accepted_qty * qty_consumed_per_unit) = (6 * 1) = 6
+		self.assertEqual(scr.supplied_items[0].consumed_qty, 6)
 
 
 def make_return_subcontracting_receipt(**args):
