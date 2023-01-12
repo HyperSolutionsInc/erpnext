@@ -109,7 +109,7 @@ class SubcontractingController(StockController):
 		self.__reference_name = []
 
 		if self.doctype in ["Purchase Order", "Subcontracting Order"] or self.is_new():
-			if self.doctype == "Subcontracting Order":
+			if self.doctype == "Subcontracting Order" and self.supplied_items:
 				self.sourced_by_supplier_items = []
 				for supplied_item in self.supplied_items:
 					if supplied_item.sourced_by_supplier:
@@ -568,7 +568,7 @@ class SubcontractingController(StockController):
 			self.__validate_serial_no(row, key)
 
 	def __set_sourced_by_supplier_items(self):
-		if self.sourced_by_supplier_items:
+		if self.get("sourced_by_supplier_items"):
 			for supplied_item in self.supplied_items:
 				for sourced_by_supplier_item in self.sourced_by_supplier_items:
 					if supplied_item.rm_item_code == sourced_by_supplier_item.get("rm_item_code"):
