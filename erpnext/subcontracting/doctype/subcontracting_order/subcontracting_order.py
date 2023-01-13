@@ -89,7 +89,11 @@ class SubcontractingOrder(SubcontractingController):
 	@frappe.whitelist()
 	def set_missing_values_in_supplied_items(self):
 		for item in self.get("items"):
-			rm_cost = sum(flt(rm_item.get("amount")) for rm_item in self.get("supplied_items"))
+			rm_cost = sum(
+				flt(rm_item.get("amount"))
+				for rm_item in self.get("supplied_items")
+				if not rm_item.get("sourced_by_supplier")
+			)
 			item.rm_cost_per_qty = rm_cost / flt(item.get("qty"))
 
 	def set_missing_values_in_items(self):
@@ -169,8 +173,9 @@ class SubcontractingOrder(SubcontractingController):
 				else:
 					total_required_qty = total_supplied_qty = 0
 					for item in self.supplied_items:
-						total_required_qty += item.required_qty if not item.sourced_by_supplier else 0
-						total_supplied_qty += flt(item.supplied_qty) if not item.sourced_by_supplier else 0
+						if not item.sourced_by_supplier:
+							total_required_qty += item.required_qty
+							total_supplied_qty += flt(item.supplied_qty)
 					if total_supplied_qty:
 						status = "Partial Material Transferred"
 						if total_supplied_qty >= total_required_qty:
@@ -184,16 +189,6 @@ class SubcontractingOrder(SubcontractingController):
 			frappe.db.set_value(
 				"Subcontracting Order", self.name, "status", status, update_modified=update_modified
 			)
-
-	@frappe.whitelist()
-	def update_raw_material_cost(self):
-		for item in self.get("items"):
-			rm_cost = sum(
-				flt(rm_item.get("amount"))
-				for rm_item in self.get("supplied_items")
-				if not rm_item.get("sourced_by_supplier")
-			)
-			item.rm_cost_per_qty = rm_cost / flt(item.get("qty"))
 
 
 @frappe.whitelist()
