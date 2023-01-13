@@ -110,6 +110,7 @@ class SubcontractingController(StockController):
 
 		if self.doctype in ["Purchase Order", "Subcontracting Order"] or self.is_new():
 			if self.doctype == "Subcontracting Order" and self.supplied_items:
+				# sourced_by_supplier_items is temporary variable to store the changes made by user
 				self.sourced_by_supplier_items = []
 				for supplied_item in self.supplied_items:
 					if supplied_item.sourced_by_supplier:
@@ -579,6 +580,7 @@ class SubcontractingController(StockController):
 								"sourced_by_supplier": sourced_by_supplier_item.get("sourced_by_supplier"),
 							}
 						)
+						break
 
 	def set_materials_for_subcontracted_items(self, raw_material_table):
 		if self.doctype == "Purchase Invoice" and not self.update_stock:
