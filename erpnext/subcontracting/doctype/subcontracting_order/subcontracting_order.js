@@ -144,15 +144,14 @@ frappe.ui.form.on('Subcontracting Order Supplied Item', {
 		row.rate = row.amount = 0;
 		let rm_cost = 0;
 		if (frm.doc.items && frm.doc.supplied_items) {
+			rm_cost = frappe.utils.sum(frm.doc.supplied_items.map(rm_item => {
+				return !rm_item.sourced_by_supplier ? rm_item.amount : 0
+			}))
 			frm.doc.items.forEach(item => {
-				rm_cost = frappe.utils.sum(cur_frm.doc.supplied_items.map(a => {
-					return !a.sourced_by_supplier ? a.amount : 0
-				}))
 				item.rm_cost_per_qty = rm_cost / item.qty;
-				frm.refresh_field("items");
 			})
 		}
-		frm.refresh_field("supplied_items");
+		frm.refresh_field(["items", "supplied_items"]);
 	}
 })
 

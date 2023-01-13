@@ -86,7 +86,6 @@ class SubcontractingOrder(SubcontractingController):
 		for idx, item in enumerate(self.get("service_items")):
 			self.items[idx].service_cost_per_qty = item.amount / self.items[idx].qty
 
-	@frappe.whitelist()
 	def set_missing_values_in_supplied_items(self):
 		for item in self.get("items"):
 			rm_cost = sum(
