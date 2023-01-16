@@ -142,7 +142,7 @@ frappe.ui.form.on('Subcontracting Order Supplied Item', {
 	sourced_by_supplier: function (frm, cdt, cdn) {
 		let row = locals[cdt][cdn];
 		row.rate = row.amount = 0;
-		if (frm.doc.items && frm.doc.supplied_items) {
+		if (frm.doc.items.length > 0 && frm.doc.supplied_items.length > 0) {
 			frm.doc.items.forEach(item => {
 				const rm_cost = frappe.utils.sum(frm.doc.supplied_items.map(rm_item => {
 					if (!rm_item.sourced_by_supplier && item.item_code == rm_item.main_item_code) {
