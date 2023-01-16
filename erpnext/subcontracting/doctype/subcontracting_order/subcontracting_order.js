@@ -139,16 +139,17 @@ frappe.ui.form.on('Subcontracting Order', {
 });
 
 frappe.ui.form.on('Subcontracting Order Supplied Item', {
-	sourced_by_supplier: function(frm, cdt, cdn) {
+	sourced_by_supplier: function (frm, cdt, cdn) {
 		let row = locals[cdt][cdn];
 		row.rate = row.amount = 0;
 		if (frm.doc.items && frm.doc.supplied_items) {
-			const rm_cost = frappe.utils.sum(frm.doc.supplied_items.map(rm_item => {
-				return !rm_item.sourced_by_supplier ? rm_item.amount : 0
-			}))
 			frm.doc.items.forEach(item => {
 				const rm_cost = frappe.utils.sum(frm.doc.supplied_items.map(rm_item => {
-					return !rm_item.sourced_by_supplier && item.item_code == rm_item.main_item_code ? rm_item.amount : 0
+					if (!rm_item.sourced_by_supplier && item.item_code == rm_item.main_item_code) {
+						return rm_item.amount;
+					} else {
+						return 0;
+					}
 				}))
 				frappe.model.set_value(item.doctype, item.name, "rm_cost_per_qty", rm_cost / item.qty);
 			})
