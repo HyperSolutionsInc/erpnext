@@ -91,7 +91,7 @@ class SubcontractingOrder(SubcontractingController):
 			rm_cost = sum(
 				flt(rm_item.get("amount"))
 				for rm_item in self.get("supplied_items")
-				if not rm_item.get("sourced_by_supplier")
+				if not rm_item.get("sourced_by_supplier") and item.item_code == rm_item.main_item_code
 			)
 			item.rm_cost_per_qty = rm_cost / flt(item.get("qty"))
 
