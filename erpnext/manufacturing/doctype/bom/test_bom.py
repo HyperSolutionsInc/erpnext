@@ -279,7 +279,9 @@ class TestBOM(FrappeTestCase):
 		sco = get_subcontracting_order(
 			service_items=service_items, supplier_warehouse="_Test Warehouse 1 - _TC"
 		)
-		bom_items = sorted([d.item_code for d in bom.items if d.sourced_by_supplier != 1])
+		bom_items = sorted(
+			[d.item_code for d in bom.items]
+		)  # if d.sourced_by_supplier != 1 removed this from here as sco is created with items sourced by supplier
 		supplied_items = sorted([d.rm_item_code for d in sco.supplied_items])
 		self.assertEqual(bom_items, supplied_items)
 

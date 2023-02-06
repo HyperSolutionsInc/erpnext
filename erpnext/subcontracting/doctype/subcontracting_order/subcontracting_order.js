@@ -138,6 +138,26 @@ frappe.ui.form.on('Subcontracting Order', {
 	}
 });
 
+frappe.ui.form.on('Subcontracting Order Supplied Item', {
+	sourced_by_supplier: function (frm, cdt, cdn) {
+		let row = locals[cdt][cdn];
+		row.rate = row.amount = 0;
+		if (frm.doc.items.length > 0 && frm.doc.supplied_items.length > 0) {
+			frm.doc.items.forEach(item => {
+				const rm_cost = frappe.utils.sum(frm.doc.supplied_items.map(rm_item => {
+					if (!rm_item.sourced_by_supplier && item.item_code == rm_item.main_item_code) {
+						return rm_item.amount;
+					} else {
+						return 0;
+					}
+				}))
+				frappe.model.set_value(item.doctype, item.name, "rm_cost_per_qty", rm_cost / item.qty);
+			})
+		}
+		frm.refresh_field(["items", "supplied_items"]);
+	}
+})
+
 frappe.ui.form.on('Landed Cost Taxes and Charges', {
 	amount: function (frm, cdt, cdn) {
 		frm.events.set_base_amount(frm, cdt, cdn);
