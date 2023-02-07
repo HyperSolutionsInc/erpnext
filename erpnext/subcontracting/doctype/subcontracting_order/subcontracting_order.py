@@ -234,3 +234,11 @@ def update_subcontracting_order_status(sco):
 		sco = frappe.get_doc("Subcontracting Order", sco)
 
 	sco.update_status()
+
+
+@frappe.whitelist()
+def get_rm_valuation_rate(rm_item_code):
+
+	from erpnext.manufacturing.doctype.bom.bom import get_valuation_rate
+
+	return get_valuation_rate({"item_code": rm_item_code})

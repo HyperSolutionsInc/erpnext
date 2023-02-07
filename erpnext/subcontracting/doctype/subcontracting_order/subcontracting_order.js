@@ -135,26 +135,51 @@ frappe.ui.form.on('Subcontracting Order', {
 				});
 			}, __('Create'));
 		}
+	},
+
+	calculate_rm_cost: function (frm) {
+		frm.doc.items.forEach(item => {
+			const rm_cost = frappe.utils.sum(frm.doc.supplied_items.map(rm_item => {
+				if (!rm_item.sourced_by_supplier && item.item_code == rm_item.main_item_code) {
+					return rm_item.amount;
+				} else {
+					return 0;
+				}
+			}))
+			frappe.model.set_value(item.doctype, item.name, "rm_cost_per_qty", rm_cost / item.qty);
+			frm.refresh_field("items")
+		})
 	}
+
 });
 
 frappe.ui.form.on('Subcontracting Order Supplied Item', {
 	sourced_by_supplier: function (frm, cdt, cdn) {
 		let row = locals[cdt][cdn];
 		row.rate = row.amount = 0;
-		if (frm.doc.items.length > 0 && frm.doc.supplied_items.length > 0) {
-			frm.doc.items.forEach(item => {
-				const rm_cost = frappe.utils.sum(frm.doc.supplied_items.map(rm_item => {
-					if (!rm_item.sourced_by_supplier && item.item_code == rm_item.main_item_code) {
-						return rm_item.amount;
-					} else {
-						return 0;
+
+		if (!row.sourced_by_supplier) {
+			frappe.call({
+				method: "erpnext.subcontracting.doctype.subcontracting_order.subcontracting_order.get_rm_valuation_rate",
+				args: {
+					"rm_item_code": row.rm_item_code
+				},
+				callback: function (r) {
+					if (r.message) {
+						row.rate = r.message;
+						row.amount = row.rate * row.required_qty;
+						frm.events.calculate_rm_cost(frm);
+						frm.refresh_field("supplied_items");
 					}
-				}))
-				frappe.model.set_value(item.doctype, item.name, "rm_cost_per_qty", rm_cost / item.qty);
+				}
 			})
+		} else {
+			row.rate = row.amount = 0;
+			if (frm.doc.items.length > 0 && frm.doc.supplied_items.length > 0) {
+				frm.events.calculate_rm_cost(frm);
+				frm.refresh_field("supplied_items");
+			}
 		}
-		frm.refresh_field(["items", "supplied_items"]);
 	}
 })
 
