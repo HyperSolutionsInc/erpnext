@@ -939,8 +939,8 @@ def make_purchase_order_for_default_supplier(source_name, selected_items=None, t
 
 	def update_item(source, target, source_parent):
 		target.schedule_date = source.delivery_date
-		target.qty = flt(source.qty) - (flt(source.ordered_qty) / flt(source.conversion_factor))
-		target.stock_qty = flt(source.stock_qty) - flt(source.ordered_qty)
+		target.qty = flt(source.qty)
+		target.stock_qty = flt(source.stock_qty)
 		target.project = source_parent.project
 
 	suppliers = [item.get("supplier") for item in selected_items if item.get("supplier")]
@@ -993,8 +993,7 @@ def make_purchase_order_for_default_supplier(source_name, selected_items=None, t
 						"pricing_rules",
 					],
 					"postprocess": update_item,
-					"condition": lambda doc: doc.ordered_qty < doc.stock_qty
-					and doc.supplier == supplier
+					"condition": lambda doc: doc.supplier == supplier
 					and doc.item_code in items_to_map,
 				},
 			},
@@ -1053,12 +1052,12 @@ def make_purchase_order(source_name, selected_items=None, target_doc=None):
 
 	def update_item(source, target, source_parent):
 		target.schedule_date = source.delivery_date
-		target.qty = flt(source.qty) - (flt(source.ordered_qty) / flt(source.conversion_factor))
-		target.stock_qty = flt(source.stock_qty) - flt(source.ordered_qty)
+		target.qty = flt(source.qty)
+		target.stock_qty = flt(source.stock_qty)
 		target.project = source_parent.project
 
 	def update_item_for_packed_item(source, target, source_parent):
-		target.qty = flt(source.qty) - flt(source.ordered_qty)
+		target.qty = flt(source.qty)
 
 	# po = frappe.get_list("Purchase Order", filters={"sales_order":source_name, "supplier":supplier, "docstatus": ("<", "2")})
 	doc = get_mapped_doc(
@@ -1099,8 +1098,7 @@ def make_purchase_order(source_name, selected_items=None, target_doc=None):
 					"pricing_rules",
 				],
 				"postprocess": update_item,
-				"condition": lambda doc: doc.ordered_qty < doc.stock_qty
-				and doc.item_code in items_to_map
+				"condition": lambda doc: doc.item_code in items_to_map
 				and not is_product_bundle(doc.item_code),
 			},
 			"Packed Item": {

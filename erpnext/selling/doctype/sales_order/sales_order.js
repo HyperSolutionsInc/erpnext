@@ -603,14 +603,6 @@ erpnext.selling.SalesOrderController = class SalesOrderController extends erpnex
 	}
 
 	make_purchase_order(){
-		let pending_items = this.frm.doc.items.some((item) =>{
-			let pending_qty = flt(item.stock_qty) - flt(item.ordered_qty);
-			return pending_qty > 0;
-		})
-		if(!pending_items){
-			frappe.throw({message: __("Purchase Order already created for all Sales Order items"), title: __("Note")});
-		}
-
 		var me = this;
 		var dialog = new frappe.ui.Dialog({
 			title: __("Select Items"),
@@ -716,8 +708,7 @@ erpnext.selling.SalesOrderController = class SalesOrderController extends erpnex
 			} else {
 				let po_items = [];
 				me.frm.doc.items.forEach(d => {
-					let ordered_qty = me.get_ordered_qty(d, me.frm.doc);
-					let pending_qty = (flt(d.stock_qty) - ordered_qty) / flt(d.conversion_factor);
+					let pending_qty = flt(d.stock_qty) / flt(d.conversion_factor);
 					if (pending_qty > 0) {
 						po_items.push({
 							"doctype": "Sales Order Item",
