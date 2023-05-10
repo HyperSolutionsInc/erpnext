@@ -112,6 +112,8 @@ class SubcontractingController(StockController):
 			if self.doctype == "Subcontracting Order" and self.supplied_items:
 				# sourced_by_supplier_items is temporary variable to store the changes made by user
 				self.sourced_by_supplier_items = []
+				# sourced_by_hyper exists in hyper app
+				self.sourced_by_hyper_items = []
 				for supplied_item in self.supplied_items:
 					if supplied_item.sourced_by_supplier:
 						self.sourced_by_supplier_items.append(
@@ -120,6 +122,15 @@ class SubcontractingController(StockController):
 								"rate": supplied_item.rate,
 								"amount": supplied_item.amount,
 								"sourced_by_supplier": supplied_item.sourced_by_supplier,
+							}
+						)
+					else:
+						self.sourced_by_hyper_items.append(
+							{
+								"rm_item_code": supplied_item.rm_item_code,
+								"rate": supplied_item.rate,
+								"amount": supplied_item.amount,
+								"sourced_by_hyper": supplied_item.sourced_by_hyper,
 							}
 						)
 			self.set(self.raw_material_table, [])
@@ -368,6 +379,7 @@ class SubcontractingController(StockController):
 			"item_name",
 			"stock_uom",
 			"sourced_by_supplier",
+			"sourced_by_hyper",
 		]:
 			fields.append(f"`tab{doctype}`.`{field}` As {alias_dict.get(field, field)}")
 
@@ -582,6 +594,20 @@ class SubcontractingController(StockController):
 						)
 						break
 
+	def __set_sourced_by_hyper_items(self):
+		if self.get("sourced_by_hyper_items"):
+			for supplied_item in self.supplied_items:
+				for sourced_by_hyper_item in self.sourced_by_hyper_items:
+					if supplied_item.rm_item_code == sourced_by_hyper_item.get("rm_item_code"):
+						supplied_item.update(
+							{
+								"rate": sourced_by_hyper_item.get("rate"),
+								"amount": sourced_by_hyper_item.get("amount"),
+								"sourced_by_hyper": sourced_by_hyper_item.get("sourced_by_hyper"),
+							}
+						)
+						break
+
 	def set_materials_for_subcontracted_items(self, raw_material_table):
 		if self.doctype == "Purchase Invoice" and not self.update_stock:
 			return
@@ -592,6 +618,7 @@ class SubcontractingController(StockController):
 		self.__validate_supplied_items()
 		if self.doctype == "Subcontracting Order":
 			self.__set_sourced_by_supplier_items()
+			self.__set_sourced_by_hyper_items()
 
 	def create_raw_materials_supplied(self, raw_material_table="supplied_items"):
 		self.set_materials_for_subcontracted_items(raw_material_table)

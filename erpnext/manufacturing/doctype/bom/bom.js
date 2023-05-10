@@ -475,6 +475,7 @@ var get_bom_material_detail = function(doc, cdt, cdn, scrap_items) {
 				"stock_uom": d.stock_uom,
 				"conversion_factor": d.conversion_factor,
 				"sourced_by_supplier": d.sourced_by_supplier,
+				"sourced_by_hyper": d.sourced_by_hyper,
 				"do_not_explode": d.do_not_explode
 			},
 			callback: function(r) {

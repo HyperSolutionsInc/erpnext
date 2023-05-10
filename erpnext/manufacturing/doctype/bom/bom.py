@@ -330,6 +330,7 @@ class BOM(WebsiteGenerator):
 			"base_rate": flt(rate) * (flt(self.conversion_rate) or 1),
 			"include_item_in_manufacturing": cint(args.get("transfer_for_manufacture")),
 			"sourced_by_supplier": args.get("sourced_by_supplier", 0),
+			"sourced_by_hyper": args.get("sourced_by_hyper", 0),
 		}
 
 		if args.get("do_not_explode"):
