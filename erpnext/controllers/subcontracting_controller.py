@@ -122,6 +122,7 @@ class SubcontractingController(StockController):
 								"rate": supplied_item.rate,
 								"amount": supplied_item.amount,
 								"sourced_by_supplier": supplied_item.sourced_by_supplier,
+								"reference_name": supplied_item.reference_name
 							}
 						)
 					else:
@@ -131,6 +132,7 @@ class SubcontractingController(StockController):
 								"rate": supplied_item.rate,
 								"amount": supplied_item.amount,
 								"sourced_by_hyper": supplied_item.sourced_by_hyper,
+								"reference_name": supplied_item.reference_name
 							}
 						)
 			self.set(self.raw_material_table, [])
@@ -584,7 +586,7 @@ class SubcontractingController(StockController):
 		if self.get("sourced_by_supplier_items"):
 			for supplied_item in self.supplied_items:
 				for sourced_by_supplier_item in self.sourced_by_supplier_items:
-					if supplied_item.rm_item_code == sourced_by_supplier_item.get("rm_item_code"):
+					if supplied_item.rm_item_code == sourced_by_supplier_item.get("rm_item_code") and supplied_item.reference_name == sourced_by_supplier_item.get("reference_name"):
 						supplied_item.update(
 							{
 								"rate": sourced_by_supplier_item.get("rate"),
@@ -598,7 +600,7 @@ class SubcontractingController(StockController):
 		if self.get("sourced_by_hyper_items"):
 			for supplied_item in self.supplied_items:
 				for sourced_by_hyper_item in self.sourced_by_hyper_items:
-					if supplied_item.rm_item_code == sourced_by_hyper_item.get("rm_item_code"):
+					if supplied_item.rm_item_code == sourced_by_hyper_item.get("rm_item_code") and supplied_item.reference_name == sourced_by_hyper_item.get("reference_name"):
 						supplied_item.update(
 							{
 								"rate": sourced_by_hyper_item.get("rate"),
