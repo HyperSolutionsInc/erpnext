@@ -587,29 +587,28 @@ class SubcontractingController(StockController):
 			for supplied_item in self.supplied_items:
 				for sourced_by_supplier_item in self.sourced_by_supplier_items:
 					if supplied_item.rm_item_code == sourced_by_supplier_item.get("rm_item_code") and supplied_item.reference_name == sourced_by_supplier_item.get("reference_name"):
-							supplied_item.update(
-								{
-									"rate": sourced_by_supplier_item.get("rate"),
-									"amount": sourced_by_supplier_item.get("amount"),
-									"sourced_by_supplier": sourced_by_supplier_item.get("sourced_by_supplier"),
-								}
-							)
-							break
+						supplied_item.update(
+							{
+								"rate": sourced_by_supplier_item.get("rate"),
+								"amount": sourced_by_supplier_item.get("amount"),
+								"sourced_by_supplier": sourced_by_supplier_item.get("sourced_by_supplier"),
+							}
+						)
+						break
 
 	def __set_sourced_by_hyper_items(self):
 		if self.get("sourced_by_hyper_items"):
 			for supplied_item in self.supplied_items:
 				for sourced_by_hyper_item in self.sourced_by_hyper_items:
 					if supplied_item.rm_item_code == sourced_by_hyper_item.get("rm_item_code") and supplied_item.reference_name == sourced_by_hyper_item.get("reference_name"):
-						if sourced_by_hyper_item.get("sourced_by_hyper"):
-							supplied_item.update(
-								{
-									"rate": sourced_by_hyper_item.get("rate"),
-									"amount": sourced_by_hyper_item.get("amount"),
-									"sourced_by_hyper": sourced_by_hyper_item.get("sourced_by_hyper"),
-								}
-							)
-							break
+						supplied_item.update(
+							{
+								"rate": sourced_by_hyper_item.get("rate"),
+								"amount": sourced_by_hyper_item.get("amount"),
+								"sourced_by_hyper": sourced_by_hyper_item.get("sourced_by_hyper"),
+							}
+						)
+						break
 
 	def set_materials_for_subcontracted_items(self, raw_material_table):
 		if self.doctype == "Purchase Invoice" and not self.update_stock:
