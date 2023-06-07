@@ -395,6 +395,24 @@ class SubcontractingController(StockController):
 			frappe.get_all("BOM", fields=fields, filters=filters, order_by=f"`tab{doctype}`.`idx`") or []
 		)
 
+	def __get_supplied_items_from_sco(self, sco, item_code):
+		fields = [
+			"rm_item_code",
+			"rate",
+			"stock_uom",
+			"reserve_warehouse",
+			"stock_uom",
+			"sourced_by_supplier",
+			"required_qty",
+			"sourced_by_hyper",
+			"required_qty as qty_consumed_per_unit"
+		]
+
+		return (
+			frappe.get_all("Subcontracting Order Supplied Item", fields=fields, filters={"parent": sco, "main_item_code": item_code, "sourced_by_supplier": 0})
+		)
+
+
 	def __update_reserve_warehouse(self, row, item):
 		if self.doctype == self.subcontract_data.order_doctype:
 			row.reserve_warehouse = self.set_reserve_warehouse or item.warehouse
@@ -515,14 +533,21 @@ class SubcontractingController(StockController):
 				continue
 
 			if self.doctype == self.subcontract_data.order_doctype or self.backflush_based_on == "BOM":
-				for bom_item in self.__get_materials_from_bom(
-					row.item_code, row.bom, row.get("include_exploded_items")
-				):
-					qty = flt(bom_item.qty_consumed_per_unit) * flt(row.qty) * row.conversion_factor
-					bom_item.main_item_code = row.item_code
-					self.__update_reserve_warehouse(bom_item, row)
-					self.__set_alternative_item(bom_item)
-					self.__add_supplied_item(row, bom_item, qty)
+				if self.doctype == "Subcontracting Receipt" and row.subcontracting_order:
+					for sco_supplied_item in self.__get_supplied_items_from_sco(row.subcontracting_order, row.item_code):
+						sco_supplied_item.main_item_code = row.item_code
+						self.__update_reserve_warehouse(sco_supplied_item, row)
+						self.__set_alternative_item(sco_supplied_item)
+						self.__add_supplied_item(row, sco_supplied_item, sco_supplied_item.qty_consumed_per_unit)
+				else:
+					for bom_item in self.__get_materials_from_bom(
+						row.item_code, row.bom, row.get("include_exploded_items")
+					):
+						qty = flt(bom_item.qty_consumed_per_unit) * flt(row.qty) * row.conversion_factor
+						bom_item.main_item_code = row.item_code
+						self.__update_reserve_warehouse(bom_item, row)
+						self.__set_alternative_item(bom_item)
+						self.__add_supplied_item(row, bom_item, qty)
 
 			elif self.backflush_based_on != "BOM":
 				for key, transfer_item in self.available_materials.items():
