@@ -383,7 +383,9 @@ class SubcontractingController(StockController):
 			"sourced_by_supplier",
 			"sourced_by_hyper",
 		]:
-			fields.append(f"`tab{doctype}`.`{field}` As {alias_dict.get(field, field)}")
+			#TODO Add sourced_by_hyper in BOM Explosion Item if needed, exclude for now.
+			if not (field == "sourced_by_hyper" and doctype == "BOM Explosion Item"):
+				fields.append(f"`tab{doctype}`.`{field}` As {alias_dict.get(field, field)}")
 
 		filters = [
 			[doctype, "parent", "=", bom_no],
