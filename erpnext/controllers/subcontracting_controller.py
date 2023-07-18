@@ -619,6 +619,7 @@ class SubcontractingController(StockController):
 								"rate": sourced_by_supplier_item.get("rate"),
 								"amount": sourced_by_supplier_item.get("amount"),
 								"sourced_by_supplier": sourced_by_supplier_item.get("sourced_by_supplier"),
+								"sourced_by_hyper": False
 							}
 						)
 						break
@@ -633,6 +634,7 @@ class SubcontractingController(StockController):
 								"rate": sourced_by_hyper_item.get("rate"),
 								"amount": sourced_by_hyper_item.get("amount"),
 								"sourced_by_hyper": sourced_by_hyper_item.get("sourced_by_hyper"),
+								"sourced_by_supplier": False
 							}
 						)
 						break
