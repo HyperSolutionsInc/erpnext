@@ -552,19 +552,45 @@ class SubcontractingController(StockController):
 						self.__add_supplied_item(row, bom_item, qty)
 
 			elif self.backflush_based_on != "BOM":
-				for key, transfer_item in self.available_materials.items():
-					if (key[1], key[2]) == (
-						row.item_code,
-						row.get(self.subcontract_data.order_field),
-					) and transfer_item.qty > 0:
-						qty = flt(self.__get_qty_based_on_material_transfer(row, transfer_item))
-						transfer_item.qty -= qty
-						self.__add_supplied_item(row, transfer_item.get("item_details"), qty)
+				if self.doctype == "Subcontracting Receipt":
+					items = self.__get_sco_supplied_items(row)
+					for item in items:
+						if row.item_code == item.main_item_code:
+							consumed_qty = row.qty * item.rm_qty_for_unit
+							self.__add_supplied_item(row, item, consumed_qty)
+				else:
+					for key, transfer_item in self.available_materials.items():
+						if (key[1], key[2]) == (
+							row.item_code,
+							row.get(self.subcontract_data.order_field),
+						) and transfer_item.qty > 0:
+							qty = flt(self.__get_qty_based_on_material_transfer(row, transfer_item))
+							transfer_item.qty -= qty
+							self.__add_supplied_item(row, transfer_item.get("item_details"), qty)
 
 				if self.qty_to_be_received:
 					self.qty_to_be_received[
 						(row.item_code, row.get(self.subcontract_data.order_field))
 					] -= row.qty
+
+	def __get_sco_supplied_items(self, item_row):
+		return frappe.get_all(
+			"Subcontracting Order",
+			filters = [
+				["Subcontracting Order Supplied Item", "parent", "=", item_row.subcontracting_order],
+				["Subcontracting Order Supplied Item", "main_item_code", "=", item_row.item_code],
+				["Subcontracting Order Supplied Item", "sourced_by_hyper", "=", 1],
+				["Subcontracting Order Supplied Item", "reference_name", "=", item_row.subcontracting_order_item],
+				["Subcontracting Order Item", "name", "=", item_row.subcontracting_order_item],
+			],
+			fields=[
+				"`tabSubcontracting Order Supplied Item`.main_item_code",
+				"`tabSubcontracting Order Supplied Item`.rm_item_code",
+				"`tabSubcontracting Order Supplied Item`.parent",
+				"`tabSubcontracting Order Supplied Item`.required_qty / `tabSubcontracting Order Item`.qty as rm_qty_for_unit",
+				"`tabSubcontracting Order Item`.qty",
+			],
+		)
 
 	def __prepare_supplied_items(self):
 		self.initialized_fields()
