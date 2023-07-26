@@ -574,23 +574,28 @@ class SubcontractingController(StockController):
 					] -= row.qty
 
 	def __get_sco_supplied_items(self, item_row):
-		return frappe.get_all(
-			"Subcontracting Order",
-			filters = [
-				["Subcontracting Order Supplied Item", "parent", "=", item_row.subcontracting_order],
-				["Subcontracting Order Supplied Item", "main_item_code", "=", item_row.item_code],
-				["Subcontracting Order Supplied Item", "sourced_by_hyper", "=", 1],
-				["Subcontracting Order Supplied Item", "reference_name", "=", item_row.subcontracting_order_item],
-				["Subcontracting Order Item", "name", "=", item_row.subcontracting_order_item],
-			],
-			fields=[
-				"`tabSubcontracting Order Supplied Item`.main_item_code",
-				"`tabSubcontracting Order Supplied Item`.rm_item_code",
-				"`tabSubcontracting Order Supplied Item`.parent",
-				"`tabSubcontracting Order Supplied Item`.required_qty / `tabSubcontracting Order Item`.qty as rm_qty_for_unit",
-				"`tabSubcontracting Order Item`.qty",
-			],
+		fg_qty = frappe.db.get_value("Subcontracting Order Item",
+			{
+				"parent": item_row.subcontracting_order,
+				"name": item_row.subcontracting_order_item
+			},
+			"qty"
 		)
+
+		if fg_qty and fg_qty > 0:
+			return frappe.get_all("Subcontracting Order Supplied Item",
+			filters = {
+				"parent": item_row.subcontracting_order,
+				"main_item_code": item_row.item_code,
+				"sourced_by_hyper": 1,
+				"reference_name": item_row.subcontracting_order_item
+			},
+			fields=[
+				"main_item_code",
+				"rm_item_code",
+				"parent",
+				f"(required_qty / {fg_qty}) as rm_qty_for_unit"
+			])
 
 	def __prepare_supplied_items(self):
 		self.initialized_fields()
