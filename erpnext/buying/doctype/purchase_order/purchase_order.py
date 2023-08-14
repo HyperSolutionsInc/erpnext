@@ -627,7 +627,7 @@ def get_mapped_purchase_invoice(source_name, target_doc=None, ignore_permissions
 				},
 				"sum(qty) as qty"
 			)
-			existing_invoiced_qty = invoiced_items[0].get("qty") if len(invoiced_items) > 0 else 0
+			existing_invoiced_qty = invoiced_items[0].get("qty") or 0
 
 			item.qty = received_qty - existing_invoiced_qty
 

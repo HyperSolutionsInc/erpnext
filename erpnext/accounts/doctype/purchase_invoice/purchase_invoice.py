@@ -418,7 +418,7 @@ class PurchaseInvoice(BuyingController):
 					},
 					"sum(qty) as qty"
 				)
-				existing_invoiced_qty = invoiced_items[0].get("qty") if len(invoiced_items) > 0 else 0
+				existing_invoiced_qty = invoiced_items[0].get("qty") or 0
 
 				if (d.qty + existing_invoiced_qty) > received_qty:
 					frappe.throw(f"Row #{d.idx}: Invoiced quantity cannot be greater than the received quantity for {frappe.bold(d.item_code)}")
