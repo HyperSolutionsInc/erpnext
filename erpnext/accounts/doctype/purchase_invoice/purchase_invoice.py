@@ -400,7 +400,7 @@ class PurchaseInvoice(BuyingController):
 					throw(msg, title=_("Mandatory Purchase Order"))
 
 	def pr_required(self):
-		stock_items = self.get_stock_items()
+		# stock_items = self.get_stock_items()
 		if frappe.db.get_value("Buying Settings", None, "pr_required") == "Yes":
 
 			if frappe.get_value(
@@ -409,17 +409,32 @@ class PurchaseInvoice(BuyingController):
 				return
 
 			for d in self.get("items"):
-				if not d.purchase_receipt and d.item_code in stock_items:
-					msg = _("Purchase Receipt Required for item {}").format(frappe.bold(d.item_code))
-					msg += "<br><br>"
-					msg += _(
-						"To submit the invoice without purchase receipt please set {0} as {1} in {2}"
-					).format(
-						frappe.bold(_("Purchase Receipt Required")),
-						frappe.bold("No"),
-						get_link_to_form("Buying Settings", "Buying Settings", "Buying Settings"),
-					)
-					throw(msg, title=_("Mandatory Purchase Receipt"))
+				received_qty = frappe.db.get_value("Purchase Order Item", d.po_detail, "received_qty")
+				invoiced_items = frappe.get_all("Purchase Invoice Item",
+					{
+						"po_detail": d.po_detail,
+						"item_code": d.item_code,
+						"docstatus": 1
+					},
+					"sum(qty) as qty"
+				)
+				existing_invoiced_qty = invoiced_items[0].get("qty") if len(invoiced_items) > 0 else 0
+
+				if (d.qty + existing_invoiced_qty) > received_qty:
+					frappe.throw(f"Row #{d.idx}: Invoiced quantity cannot be greater than the received quantity for {frappe.bold(d.item_code)}")
+
+			# if not d.purchase_receipt and d.item_code in stock_items:
+			# 	msg = _("Purchase Receipt Required for item {}").format(frappe.bold(d.item_code))
+			# 	msg += "<br><br>"
+			# 	msg += _(
+			# 		"To submit the invoice without purchase receipt please set {0} as {1} in {2}"
+			# 	).format(
+			# 		frappe.bold(_("Purchase Receipt Required")),
+			# 		frappe.bold("No"),
+			# 		get_link_to_form("Buying Settings", "Buying Settings", "Buying Settings"),
+			# 	)
+				# throw(msg, title=_("Mandatory Purchase Receipt"))
+
 
 	def validate_write_off_account(self):
 		if self.write_off_amount and not self.write_off_account:
