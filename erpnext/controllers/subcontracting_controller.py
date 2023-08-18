@@ -526,13 +526,13 @@ class SubcontractingController(StockController):
 	def __set_supplied_items(self):
 		self.bom_items = {}
 
-		has_supplied_items = True if self.get(self.raw_material_table) else False
+		# has_supplied_items = True if self.get(self.raw_material_table) else False
 		for row in self.items:
-			if self.doctype != self.subcontract_data.order_doctype and (
-				(self.__changed_name and row.name not in self.__changed_name)
-				or (has_supplied_items and not self.__changed_name)
-			):
-				continue
+			# if self.doctype != self.subcontract_data.order_doctype and (
+			# 	(self.__changed_name and row.name not in self.__changed_name)
+			# 	or (has_supplied_items and not self.__changed_name)
+			# ):
+			# 	continue
 
 			if self.doctype == self.subcontract_data.order_doctype or self.backflush_based_on == "BOM":
 				if self.doctype == "Subcontracting Receipt" and row.subcontracting_order:

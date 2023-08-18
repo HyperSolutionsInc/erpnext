@@ -30,6 +30,10 @@ class SubcontractingOrder(SubcontractingController):
 		self.update_reserved_qty_for_subcontracting()
 		self.update_status()
 
+	def on_update_after_submit(self):
+		self.set_missing_values_in_supplied_items()
+		self.set_missing_values_in_items()
+
 	def on_cancel(self):
 		self.update_ordered_qty_for_subcontracting()
 		self.update_reserved_qty_for_subcontracting()
