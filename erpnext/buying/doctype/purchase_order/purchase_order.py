@@ -613,6 +613,24 @@ def get_mapped_purchase_invoice(source_name, target_doc=None, ignore_permissions
 		postprocess,
 		ignore_permissions=ignore_permissions,
 	)
+
+	#set remaning qty to be invoiced against received qty
+	if frappe.db.get_single_value("Buying Settings", "pr_required") == "Yes":
+		for item in doc.get("items"):
+			received_qty = frappe.db.get_value("Purchase Order Item", item.po_detail, "received_qty")
+			invoiced_items = frappe.get_all(
+				"Purchase Invoice Item",
+				{
+					"po_detail": item.po_detail,
+					"item_code": item.item_code,
+					"docstatus": 1
+				},
+				"sum(qty) as qty"
+			)
+			existing_invoiced_qty = invoiced_items[0].get("qty") or 0
+
+			item.qty = received_qty - existing_invoiced_qty
+
 	doc.set_onload("ignore_price_list", True)
 
 	return doc
