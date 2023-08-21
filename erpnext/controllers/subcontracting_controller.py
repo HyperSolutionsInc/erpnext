@@ -526,13 +526,13 @@ class SubcontractingController(StockController):
 	def __set_supplied_items(self):
 		self.bom_items = {}
 
-		has_supplied_items = True if self.get(self.raw_material_table) else False
+		# has_supplied_items = True if self.get(self.raw_material_table) else False
 		for row in self.items:
-			if self.doctype != self.subcontract_data.order_doctype and (
-				(self.__changed_name and row.name not in self.__changed_name)
-				or (has_supplied_items and not self.__changed_name)
-			):
-				continue
+			# if self.doctype != self.subcontract_data.order_doctype and (
+			# 	(self.__changed_name and row.name not in self.__changed_name)
+			# 	or (has_supplied_items and not self.__changed_name)
+			# ):
+			# 	continue
 
 			if self.doctype == self.subcontract_data.order_doctype or self.backflush_based_on == "BOM":
 				if self.doctype == "Subcontracting Receipt" and row.subcontracting_order:
@@ -602,8 +602,9 @@ class SubcontractingController(StockController):
 		self.__get_subcontract_orders()
 		self.__get_pending_qty_to_receive()
 		self.get_available_materials()
-		self.__remove_changed_rows()
-		self.__set_supplied_items()
+		# self.__remove_changed_rows()
+		if self.is_new():
+			self.__set_supplied_items()
 
 	def __validate_batch_no(self, row, key):
 		if row.get("batch_no") and row.get("batch_no") not in self.__transferred_items.get(key).get(
@@ -675,12 +676,12 @@ class SubcontractingController(StockController):
 			return
 
 		self.raw_material_table = raw_material_table
-		self.__identify_change_in_item_table()
+		# self.__identify_change_in_item_table()
 		self.__prepare_supplied_items()
 		self.__validate_supplied_items()
-		if self.doctype == "Subcontracting Order":
-			self.__set_sourced_by_supplier_items()
-			self.__set_sourced_by_hyper_items()
+		# if self.doctype == "Subcontracting Order":
+		# 	self.__set_sourced_by_supplier_items()
+		# 	self.__set_sourced_by_hyper_items()
 
 	def create_raw_materials_supplied(self, raw_material_table="supplied_items"):
 		self.set_materials_for_subcontracted_items(raw_material_table)

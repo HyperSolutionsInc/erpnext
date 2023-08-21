@@ -30,6 +30,10 @@ class SubcontractingOrder(SubcontractingController):
 		self.update_reserved_qty_for_subcontracting()
 		self.update_status()
 
+	def on_update_after_submit(self):
+		self.set_missing_values_in_supplied_items()
+		self.set_missing_values_in_items()
+
 	def on_cancel(self):
 		self.update_ordered_qty_for_subcontracting()
 		self.update_reserved_qty_for_subcontracting()
@@ -91,20 +95,21 @@ class SubcontractingOrder(SubcontractingController):
 			rm_cost = sum(
 				flt(rm_item.get("amount"))
 				for rm_item in self.get("supplied_items")
-				if not rm_item.get("sourced_by_supplier") and item.item_code == rm_item.main_item_code
+				if not rm_item.get("sourced_by_supplier") and item.name == rm_item.reference_name
 			)
-			item.rm_cost_per_qty = rm_cost / flt(item.get("qty"))
+			item.db_set("rm_cost_per_qty", rm_cost / flt(item.get("qty")))
 
 	def set_missing_values_in_items(self):
 		total_qty = total = 0
 		for item in self.items:
-			item.rate = item.rm_cost_per_qty + item.service_cost_per_qty + flt(item.additional_cost_per_qty)
-			item.amount = item.qty * item.rate
+			rate = item.rm_cost_per_qty + item.service_cost_per_qty + flt(item.additional_cost_per_qty)
+			item.db_set("rate", rate)
+			item.db_set("amount", item.qty * rate)
 			total_qty += flt(item.qty)
 			total += flt(item.amount)
 		else:
-			self.total_qty = total_qty
-			self.total = total
+			self.db_set("total", total)
+			self.db_set("total_qty", total_qty)
 
 	def update_ordered_qty_for_subcontracting(self, sco_item_rows=None):
 		item_wh_list = []
