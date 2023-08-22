@@ -409,6 +409,9 @@ class PurchaseInvoice(BuyingController):
 				return
 
 			for d in self.get("items"):
+				if not d.po_detail:
+					frappe.throw("Please create the invoice from an existing Purchase Order or Receipt instead.")
+
 				received_qty = frappe.db.get_value("Purchase Order Item", d.po_detail, "received_qty")
 				invoiced_items = frappe.get_all("Purchase Invoice Item",
 					{
@@ -420,7 +423,7 @@ class PurchaseInvoice(BuyingController):
 				)
 				existing_invoiced_qty = invoiced_items[0].get("qty") or 0
 
-				if (d.qty + existing_invoiced_qty) > received_qty:
+				if (d.qty + existing_invoiced_qty) > flt(received_qty):
 					frappe.throw(f"Row #{d.idx}: Invoiced quantity cannot be greater than the received quantity for {frappe.bold(d.item_code)}")
 
 			# if not d.purchase_receipt and d.item_code in stock_items:
