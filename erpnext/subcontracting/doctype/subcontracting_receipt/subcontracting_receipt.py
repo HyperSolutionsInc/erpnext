@@ -70,6 +70,9 @@ class SubcontractingReceipt(SubcontractingController):
 		if self._action == "submit":
 			self.make_batches("warehouse")
 
+		if not self.get("is_return"):
+			self.validate_inspection()
+
 		if getdate(self.posting_date) > getdate(nowdate()):
 			frappe.throw(_("Posting Date cannot be future date"))
 
