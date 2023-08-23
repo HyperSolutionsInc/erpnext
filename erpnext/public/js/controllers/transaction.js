@@ -1974,6 +1974,7 @@ erpnext.TransactionController = class TransactionController extends erpnext.taxe
 		const me = this;
 		const dialog = new frappe.ui.Dialog({
 			title: __("Select Items for Quality Inspection"),
+			size: "extra-large",
 			fields: fields,
 			primary_action: function () {
 				const data = dialog.get_values();
