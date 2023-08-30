@@ -225,9 +225,6 @@ def get_mapped_subcontracting_receipt(source_name, target_doc=None):
 					"name": "subcontracting_order_item",
 					"parent": "subcontracting_order",
 					"bom": "bom",
-					# po_detail and purchase_order field exists in hyper
-					"po_detail": "po_detail",
-					"purchase_order": "purchase_order"
 				},
 				"postprocess": update_item,
 				"condition": lambda doc: abs(doc.received_qty) < abs(doc.qty),
