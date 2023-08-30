@@ -693,12 +693,19 @@ def get_mapped_subcontracting_order(source_name, target_doc=None):
 			},
 			"Purchase Order Item": {
 				"doctype": "Subcontracting Order Service Item",
-				"field_map": {},
+				"field_map": {
+					# po_detail field exists in hyper
+					"name": "po_detail",
+				},
 				"field_no_map": [],
 			},
 		},
 		target_doc,
 	)
+
+	for service_item in target_doc.service_items:
+		# purchase_order field exists in hyper
+		service_item.purchase_order = source_name
 
 	target_doc.populate_items_table()
 
