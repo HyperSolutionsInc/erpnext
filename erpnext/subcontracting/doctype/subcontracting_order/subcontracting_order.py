@@ -41,12 +41,12 @@ class SubcontractingOrder(SubcontractingController):
 
 	def validate_purchase_order_for_subcontracting(self):
 		if self.purchase_order:
-			if is_subcontracting_order_created(self.purchase_order):
-				frappe.throw(
-					_(
-						"Only one Subcontracting Order can be created against a Purchase Order, cancel the existing Subcontracting Order to create a new one."
-					)
-				)
+			# if is_subcontracting_order_created(self.purchase_order):
+			# 	frappe.throw(
+			# 		_(
+			# 			"Only one Subcontracting Order can be created against a Purchase Order, cancel the existing Subcontracting Order to create a new one."
+			# 		)
+			# 	)
 
 			po = frappe.get_doc("Purchase Order", self.purchase_order)
 
@@ -88,7 +88,7 @@ class SubcontractingOrder(SubcontractingController):
 
 	def set_missing_values_in_service_items(self):
 		for idx, item in enumerate(self.get("service_items")):
-			self.items[idx].service_cost_per_qty = item.amount / self.items[idx].qty
+			self.items[idx].db_set("service_cost_per_qty", item.amount / self.items[idx].qty)
 
 	def set_missing_values_in_supplied_items(self):
 		for item in self.get("items"):
