@@ -41,12 +41,12 @@ class SubcontractingOrder(SubcontractingController):
 
 	def validate_purchase_order_for_subcontracting(self):
 		if self.purchase_order:
-			if is_subcontracting_order_created(self.purchase_order):
-				frappe.throw(
-					_(
-						"Only one Subcontracting Order can be created against a Purchase Order, cancel the existing Subcontracting Order to create a new one."
-					)
-				)
+			# if is_subcontracting_order_created(self.purchase_order):
+			# 	frappe.throw(
+			# 		_(
+			# 			"Only one Subcontracting Order can be created against a Purchase Order, cancel the existing Subcontracting Order to create a new one."
+			# 		)
+			# 	)
 
 			po = frappe.get_doc("Purchase Order", self.purchase_order)
 
@@ -88,7 +88,7 @@ class SubcontractingOrder(SubcontractingController):
 
 	def set_missing_values_in_service_items(self):
 		for idx, item in enumerate(self.get("service_items")):
-			self.items[idx].service_cost_per_qty = item.amount / self.items[idx].qty
+			self.items[idx].db_set("service_cost_per_qty", item.amount / self.items[idx].qty)
 
 	def set_missing_values_in_supplied_items(self):
 		for item in self.get("items"):
@@ -138,15 +138,21 @@ class SubcontractingOrder(SubcontractingController):
 				item = frappe.get_doc("Item", si.fg_item)
 				bom = frappe.db.get_value("BOM", {"item": item.item_code, "is_active": 1, "is_default": 1})
 
+				if si.po_detail:
+					required_by = frappe.db.get_value("Purchase Order Item", si.po_detail, "schedule_date")
 				items.append(
 					{
 						"item_code": item.item_code,
 						"item_name": item.item_name,
-						"schedule_date": self.schedule_date,
+						"schedule_date": required_by or self.schedule_date,
 						"description": item.description,
 						"qty": si.fg_item_qty,
 						"stock_uom": item.stock_uom,
 						"bom": bom,
+						# po_detail and purchase_order field exists in hyper
+						"po_detail": si.po_detail,
+						"purchase_order": si.purchase_order,
+						"include_exploded_items": True
 					},
 				)
 			else:
