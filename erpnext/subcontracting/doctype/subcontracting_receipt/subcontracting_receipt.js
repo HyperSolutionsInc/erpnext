@@ -9,7 +9,10 @@ frappe.ui.form.on('Subcontracting Receipt', {
 	setup: (frm) => {
 		frm.get_field('supplied_items').grid.cannot_add_rows = true;
 		frm.get_field('supplied_items').grid.only_sortable();
+		frm.trigger('set_queries');
+	},
 
+	set_queries: (frm) => {
 		frm.set_query('set_warehouse', () => {
 			return {
 				filters: {
@@ -131,6 +134,8 @@ frappe.ui.form.on('Subcontracting Receipt', {
 				});
 			}, __("Get Items From"));
 		}
+
+		frm.trigger('setup_quality_inspection');
 	},
 
 	set_warehouse: (frm) => {
@@ -139,6 +144,13 @@ frappe.ui.form.on('Subcontracting Receipt', {
 
 	rejected_warehouse: (frm) => {
 		set_warehouse_in_children(frm.doc.items, 'rejected_warehouse', frm.doc.rejected_warehouse);
+	},
+
+	setup_quality_inspection: (frm) => {
+		if (!frm.is_new() && frm.doc.docstatus === 0 && !frm.doc.is_return) {
+			let transaction_controller = new erpnext.TransactionController({ frm: frm });
+			transaction_controller.setup_quality_inspection();
+		}
 	},
 });
 
