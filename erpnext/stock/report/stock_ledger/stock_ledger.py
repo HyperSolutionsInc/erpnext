@@ -34,6 +34,9 @@ def execute(filters=None):
 		conversion_factors.append(0)
 
 	actual_qty = stock_value = 0
+	if opening_row:
+		actual_qty = opening_row.get("qty_after_transaction")
+		stock_value = opening_row.get("stock_value")
 
 	available_serial_nos = {}
 	inventory_dimension_filters_applied = check_inventory_dimension_filters_applied(filters)
@@ -193,17 +196,21 @@ def get_columns(filters):
 			{
 				"label": _("Avg Rate (Balance Stock)"),
 				"fieldname": "valuation_rate",
-				"fieldtype": "Currency",
+				"fieldtype": filters.valuation_field_type,
 				"width": 180,
-				"options": "Company:company:default_currency",
+				"options": "Company:company:default_currency"
+				if filters.valuation_field_type == "Currency"
+				else None,
 				"convertible": "rate",
 			},
 			{
 				"label": _("Valuation Rate"),
 				"fieldname": "in_out_rate",
-				"fieldtype": "Currency",
+				"fieldtype": filters.valuation_field_type,
 				"width": 140,
-				"options": "Company:company:default_currency",
+				"options": "Company:company:default_currency"
+				if filters.valuation_field_type == "Currency"
+				else None,
 				"convertible": "rate",
 			},
 			{
@@ -306,7 +313,7 @@ def get_stock_ledger_entries(filters, items):
 		query = query.where(sle.item_code.isin(items))
 
 	for field in ["voucher_no", "batch_no", "project", "company"]:
-		if filters.get(field):
+		if filters.get(field) and field not in inventory_dimension_fields:
 			query = query.where(sle[field] == filters.get(field))
 
 	query = apply_warehouse_filter(query, sle, filters)

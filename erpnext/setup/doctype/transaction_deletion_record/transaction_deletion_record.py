@@ -3,13 +3,17 @@
 
 
 import frappe
-from frappe import _
+from frappe import _, qb
 from frappe.desk.notifications import clear_notifications
 from frappe.model.document import Document
-from frappe.utils import cint
+from frappe.utils import cint, create_batch
 
 
 class TransactionDeletionRecord(Document):
+	def __init__(self, *args, **kwargs):
+		super(TransactionDeletionRecord, self).__init__(*args, **kwargs)
+		self.batch_size = 5000
+
 	def validate(self):
 		frappe.only_for("System Manager")
 		self.validate_doctypes_to_be_ignored()
@@ -104,7 +108,16 @@ class TransactionDeletionRecord(Document):
 
 				if no_of_docs > 0:
 					self.delete_version_log(docfield["parent"], docfield["fieldname"])
-					self.delete_communications(docfield["parent"], docfield["fieldname"])
+
+					reference_docs = frappe.get_all(
+						docfield["parent"], filters={docfield["fieldname"]: self.company}
+					)
+					reference_doc_names = [r.name for r in reference_docs]
+
+					self.delete_communications(docfield["parent"], reference_doc_names)
+					self.delete_comments(docfield["parent"], reference_doc_names)
+					self.unlink_attachments(docfield["parent"], reference_doc_names)
+
 					self.populate_doctypes_table(tables, docfield["parent"], no_of_docs)
 
 					self.delete_child_tables(docfield["parent"], docfield["fieldname"])
@@ -155,8 +168,9 @@ class TransactionDeletionRecord(Document):
 			"DocField", filters={"fieldtype": "Table", "parent": doctype}, pluck="options"
 		)
 
-		for table in child_tables:
-			frappe.db.delete(table, {"parent": ["in", parent_docs_to_be_deleted]})
+		for batch in create_batch(parent_docs_to_be_deleted, self.batch_size):
+			for table in child_tables:
+				frappe.db.delete(table, {"parent": ["in", batch]})
 
 	def delete_docs_linked_with_specified_company(self, doctype, company_fieldname):
 		frappe.db.delete(doctype, {company_fieldname: self.company})
@@ -181,25 +195,59 @@ class TransactionDeletionRecord(Document):
 		frappe.db.sql("""update `tabSeries` set current = %s where name=%s""", (last, prefix))
 
 	def delete_version_log(self, doctype, company_fieldname):
-		frappe.db.sql(
-			"""delete from `tabVersion` where ref_doctype=%s and docname in
-			(select name from `tab{0}` where `{1}`=%s)""".format(
-				doctype, company_fieldname
-			),
-			(doctype, self.company),
-		)
+		dt = qb.DocType(doctype)
+		names = qb.from_(dt).select(dt.name).where(dt[company_fieldname] == self.company).run(as_list=1)
+		names = [x[0] for x in names]
 
-	def delete_communications(self, doctype, company_fieldname):
-		reference_docs = frappe.get_all(doctype, filters={company_fieldname: self.company})
-		reference_doc_names = [r.name for r in reference_docs]
+		if names:
+			versions = qb.DocType("Version")
+			for batch in create_batch(names, self.batch_size):
+				qb.from_(versions).delete().where(
+					(versions.ref_doctype == doctype) & (versions.docname.isin(batch))
+				).run()
 
+	def delete_communications(self, doctype, reference_doc_names):
 		communications = frappe.get_all(
 			"Communication",
 			filters={"reference_doctype": doctype, "reference_name": ["in", reference_doc_names]},
 		)
 		communication_names = [c.name for c in communications]
 
-		frappe.delete_doc("Communication", communication_names, ignore_permissions=True)
+		if not communication_names:
+			return
+
+		for batch in create_batch(communication_names, self.batch_size):
+			frappe.delete_doc("Communication", batch, ignore_permissions=True)
+
+	def delete_comments(self, doctype, reference_doc_names):
+		comments = frappe.get_all(
+			"Comment",
+			filters={"reference_doctype": doctype, "reference_name": ["in", reference_doc_names]},
+		)
+		comment_names = [c.name for c in comments]
+
+		if not comment_names:
+			return
+
+		for batch in create_batch(comment_names, self.batch_size):
+			frappe.delete_doc("Comment", batch, ignore_permissions=True)
+
+	def unlink_attachments(self, doctype, reference_doc_names):
+		files = frappe.get_all(
+			"File",
+			filters={"attached_to_doctype": doctype, "attached_to_name": ["in", reference_doc_names]},
+		)
+		file_names = [c.name for c in files]
+
+		if not file_names:
+			return
+
+		file = qb.DocType("File")
+
+		for batch in create_batch(file_names, self.batch_size):
+			qb.update(file).set(file.attached_to_doctype, None).set(file.attached_to_name, None).where(
+				file.name.isin(batch)
+			).run()
 
 
 @frappe.whitelist()

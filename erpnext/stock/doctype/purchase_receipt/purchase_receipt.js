@@ -35,6 +35,12 @@ frappe.ui.form.on("Purchase Receipt", {
 			}
 		});
 
+		frm.set_query("wip_composite_asset", "items", function() {
+			return {
+				filters: {'is_composite_asset': 1, 'docstatus': 0 }
+			}
+		});
+
 		frm.set_query("taxes_and_charges", function() {
 			return {
 				filters: {'company': frm.doc.company }
@@ -70,6 +76,20 @@ frappe.ui.form.on("Purchase Receipt", {
 					frm: cur_frm,
 				})
 			}, __('Create'));
+		}
+
+		if (frm.doc.docstatus === 0) {
+			if (!frm.doc.is_return) {
+				frappe.db.get_single_value("Buying Settings", "maintain_same_rate").then((value) => {
+					if (value) {
+						frm.doc.items.forEach((item) => {
+							frm.fields_dict.items.grid.update_docfield_property(
+								"rate", "read_only", (item.purchase_order && item.purchase_order_item)
+							);
+						});
+					}
+				});
+			}
 		}
 
 		frm.events.add_custom_buttons(frm);

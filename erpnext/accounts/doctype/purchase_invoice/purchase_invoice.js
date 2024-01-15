@@ -31,7 +31,7 @@ erpnext.accounts.PurchaseInvoice = class PurchaseInvoice extends erpnext.buying.
 		super.onload();
 
 		// Ignore linked advances
-		this.frm.ignore_doctypes_on_cancel_all = ['Journal Entry', 'Payment Entry', 'Purchase Invoice'];
+		this.frm.ignore_doctypes_on_cancel_all = ['Journal Entry', 'Payment Entry', 'Purchase Invoice', "Repost Payment Ledger", "Repost Accounting Ledger", "Unreconcile Payment", "Unreconcile Payment Entries"];
 
 		if(!this.frm.doc.__islocal) {
 			// show credit_to in print format
@@ -59,6 +59,25 @@ erpnext.accounts.PurchaseInvoice = class PurchaseInvoice extends erpnext.buying.
 			this.show_stock_ledger();
 		}
 
+		if (this.frm.doc.repost_required && this.frm.doc.docstatus===1) {
+			this.frm.set_intro(__("Accounting entries for this invoice need to be reposted. Please click on 'Repost' button to update."));
+			this.frm.add_custom_button(__('Repost Accounting Entries'),
+				() => {
+					this.frm.call({
+						doc: this.frm.doc,
+						method: 'repost_accounting_entries',
+						freeze: true,
+						freeze_message: __('Reposting...'),
+						callback: (r) => {
+							if (!r.exc) {
+								frappe.msgprint(__('Accounting Entries are reposted.'));
+								me.frm.refresh();
+							}
+						}
+					});
+				}).removeClass('btn-default').addClass('btn-warning');
+		}
+
 		if(!doc.is_return && doc.docstatus == 1 && doc.outstanding_amount != 0){
 			if(doc.on_hold) {
 				this.frm.add_custom_button(
@@ -82,7 +101,11 @@ erpnext.accounts.PurchaseInvoice = class PurchaseInvoice extends erpnext.buying.
 
 		if(doc.docstatus == 1 && doc.outstanding_amount != 0
 			&& !(doc.is_return && doc.return_against) && !doc.on_hold) {
-			this.frm.add_custom_button(__('Payment'), this.make_payment_entry, __('Create'));
+			this.frm.add_custom_button(
+				__('Payment'),
+				() => this.make_payment_entry(),
+				__('Create')
+			);
 			cur_frm.page.set_inner_btn_group_as_primary(__('Create'));
 		}
 
@@ -141,6 +164,18 @@ erpnext.accounts.PurchaseInvoice = class PurchaseInvoice extends erpnext.buying.
 					}
 				})
 			}, __("Get Items From"));
+
+			if (!this.frm.doc.is_return) {
+				frappe.db.get_single_value("Buying Settings", "maintain_same_rate").then((value) => {
+					if (value) {
+						this.frm.doc.items.forEach((item) => {
+							this.frm.fields_dict.items.grid.update_docfield_property(
+								"rate", "read_only", (item.purchase_receipt && item.pr_detail)
+							);
+						});
+					}
+				});
+			}
 		}
 		this.frm.toggle_reqd("supplier_warehouse", this.frm.doc.is_subcontracted);
 
@@ -158,6 +193,7 @@ erpnext.accounts.PurchaseInvoice = class PurchaseInvoice extends erpnext.buying.
 		}
 
 		this.frm.set_df_property("tax_withholding_category", "hidden", doc.apply_tds ? 0 : 1);
+		erpnext.accounts.unreconcile_payment.add_unreconcile_btn(me.frm);
 	}
 
 	unblock_invoice() {
@@ -299,7 +335,7 @@ erpnext.accounts.PurchaseInvoice = class PurchaseInvoice extends erpnext.buying.
 
 	apply_tds(frm) {
 		var me = this;
-
+		me.frm.set_value("tax_withheld_vouchers", []);
 		if (!me.frm.doc.apply_tds) {
 			me.frm.set_value("tax_withholding_category", '');
 			me.frm.set_df_property("tax_withholding_category", "hidden", 1);
@@ -453,6 +489,12 @@ cur_frm.set_query("expense_account", "items", function(doc) {
 	return {
 		query: "erpnext.controllers.queries.get_expense_account",
 		filters: {'company': doc.company }
+	}
+});
+
+cur_frm.set_query("wip_composite_asset", "items", function() {
+	return {
+		filters: {'is_composite_asset': 1, 'docstatus': 0 }
 	}
 });
 

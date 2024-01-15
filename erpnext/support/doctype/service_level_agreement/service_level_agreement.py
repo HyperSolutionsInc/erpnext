@@ -21,6 +21,7 @@ from frappe.utils import (
 	time_diff_in_seconds,
 	to_timedelta,
 )
+from frappe.utils.caching import redis_cache
 from frappe.utils.nestedset import get_ancestors_of
 from frappe.utils.safe_exec import get_safe_globals
 
@@ -208,6 +209,10 @@ class ServiceLevelAgreement(Document):
 
 	def on_update(self):
 		set_documents_with_active_service_level_agreement()
+
+	def clear_cache(self):
+		get_sla_doctypes.clear_cache()
+		return super().clear_cache()
 
 	def create_docfields(self, meta, service_level_agreement_fields):
 		last_index = len(meta.fields)
@@ -734,10 +739,12 @@ def get_response_and_resolution_duration(doc):
 	return priority
 
 
-def reset_service_level_agreement(doc, reason, user):
+@frappe.whitelist()
+def reset_service_level_agreement(doctype: str, docname: str, reason, user):
 	if not frappe.db.get_single_value("Support Settings", "allow_resetting_service_level_agreement"):
 		frappe.throw(_("Allow Resetting Service Level Agreement from Support Settings."))
 
+	doc = frappe.get_doc(doctype, docname)
 	frappe.get_doc(
 		{
 			"doctype": "Comment",
@@ -774,6 +781,9 @@ def on_communication_update(doc, status):
 		return
 
 	if not parent.meta.has_field("service_level_agreement"):
+		return
+
+	if not parent.get("service_level_agreement"):
 		return
 
 	if (
@@ -987,6 +997,7 @@ def get_user_time(user, to_string=False):
 
 
 @frappe.whitelist()
+@redis_cache()
 def get_sla_doctypes():
 	doctypes = []
 	data = frappe.get_all("Service Level Agreement", {"enabled": 1}, ["document_type"], distinct=1)
@@ -995,3 +1006,7 @@ def get_sla_doctypes():
 		doctypes.append(entry.document_type)
 
 	return doctypes
+
+
+def add_sla_doctypes(bootinfo):
+	bootinfo.service_level_agreement_doctypes = get_sla_doctypes()

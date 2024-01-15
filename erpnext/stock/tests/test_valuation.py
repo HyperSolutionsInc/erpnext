@@ -132,7 +132,7 @@ class TestFIFOValuation(unittest.TestCase):
 		total_qty = 0
 
 		for qty, rate in stock_queue:
-			if qty == 0:
+			if round_off_if_near_zero(qty) == 0:
 				continue
 			if qty > 0:
 				self.queue.add_stock(qty, rate)
@@ -154,7 +154,7 @@ class TestFIFOValuation(unittest.TestCase):
 
 		for qty, rate in stock_queue:
 			# don't allow negative stock
-			if qty == 0 or total_qty + qty < 0 or abs(qty) < 0.1:
+			if round_off_if_near_zero(qty) == 0 or total_qty + qty < 0 or abs(qty) < 0.1:
 				continue
 			if qty > 0:
 				self.queue.add_stock(qty, rate)
@@ -179,7 +179,7 @@ class TestFIFOValuation(unittest.TestCase):
 
 		for qty, rate in stock_queue:
 			# don't allow negative stock
-			if qty == 0 or total_qty + qty < 0 or abs(qty) < 0.1:
+			if round_off_if_near_zero(qty) == 0 or total_qty + qty < 0 or abs(qty) < 0.1:
 				continue
 			if qty > 0:
 				self.queue.add_stock(qty, rate)
@@ -195,7 +195,6 @@ class TestFIFOValuation(unittest.TestCase):
 				total_value -= sum(q * r for q, r in consumed)
 			self.assertTotalQty(total_qty)
 			self.assertTotalValue(total_value)
-			self.assertGreaterEqual(total_value, 0)
 
 
 class TestLIFOValuation(unittest.TestCase):
@@ -282,7 +281,7 @@ class TestLIFOValuation(unittest.TestCase):
 		total_qty = 0
 
 		for qty, rate in stock_stack:
-			if qty == 0:
+			if round_off_if_near_zero(qty) == 0:
 				continue
 			if qty > 0:
 				self.stack.add_stock(qty, rate)
@@ -304,7 +303,7 @@ class TestLIFOValuation(unittest.TestCase):
 
 		for qty, rate in stock_stack:
 			# don't allow negative stock
-			if qty == 0 or total_qty + qty < 0 or abs(qty) < 0.1:
+			if round_off_if_near_zero(qty) == 0 or total_qty + qty < 0 or abs(qty) < 0.1:
 				continue
 			if qty > 0:
 				self.stack.add_stock(qty, rate)

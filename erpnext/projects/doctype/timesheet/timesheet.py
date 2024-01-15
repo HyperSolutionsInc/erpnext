@@ -58,11 +58,19 @@ class Timesheet(Document):
 		self.per_billed = 0
 		if self.total_billed_amount > 0 and self.total_billable_amount > 0:
 			self.per_billed = (self.total_billed_amount * 100) / self.total_billable_amount
+		elif self.total_billed_hours > 0 and self.total_billable_hours > 0:
+			self.per_billed = (self.total_billed_hours * 100) / self.total_billable_hours
 
 	def update_billing_hours(self, args):
 		if args.is_billable:
 			if flt(args.billing_hours) == 0.0:
 				args.billing_hours = args.hours
+			elif flt(args.billing_hours) > flt(args.hours):
+				frappe.msgprint(
+					_("Warning - Row {0}: Billing Hours are more than Actual Hours").format(args.idx),
+					indicator="orange",
+					alert=True,
+				)
 		else:
 			args.billing_hours = 0
 
@@ -381,6 +389,9 @@ def make_sales_invoice(source_name, item_code=None, customer=None, currency=None
 				"timesheets",
 				{
 					"time_sheet": timesheet.name,
+					"project_name": time_log.project_name,
+					"from_time": time_log.from_time,
+					"to_time": time_log.to_time,
 					"billing_hours": time_log.billing_hours,
 					"billing_amount": time_log.billing_amount,
 					"timesheet_detail": time_log.name,

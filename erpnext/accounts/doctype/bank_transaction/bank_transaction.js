@@ -12,8 +12,14 @@ frappe.ui.form.on("Bank Transaction", {
 			};
 		});
 	},
-
-	bank_account: function(frm) {
+	refresh(frm) {
+		if (!frm.is_dirty() && frm.doc.payment_entries.length > 0) {
+			frm.add_custom_button(__("Unreconcile Transaction"), () => {
+				frm.call("remove_payment_entries").then(() => frm.refresh());
+			});
+		}
+	},
+	bank_account: function (frm) {
 		set_bank_statement_filter(frm);
 	},
 
@@ -34,6 +40,7 @@ frappe.ui.form.on("Bank Transaction", {
 			"Journal Entry",
 			"Sales Invoice",
 			"Purchase Invoice",
+			"Bank Transaction",
 		];
 	}
 });
@@ -49,7 +56,7 @@ const update_clearance_date = (frm, cdt, cdn) => {
 		frappe
 			.xcall(
 				"erpnext.accounts.doctype.bank_transaction.bank_transaction.unclear_reference_payment",
-				{ doctype: cdt, docname: cdn }
+				{ doctype: cdt, docname: cdn, bt_name: frm.doc.name }
 			)
 			.then((e) => {
 				if (e == "success") {

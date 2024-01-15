@@ -69,6 +69,7 @@
   "item_tax_amount",
   "rm_supp_cost",
   "landed_cost_voucher_amount",
+  "rate_difference_with_purchase_invoice",
   "billed_amt",
   "warehouse_and_reference",
   "warehouse",
@@ -109,6 +110,7 @@
   "manufacturer_part_no",
   "accounting_details_section",
   "expense_account",
+  "wip_composite_asset",
   "column_break_102",
   "provisional_expense_account",
   "accounting_dimensions_section",
@@ -116,7 +118,9 @@
   "dimension_col_break",
   "cost_center",
   "section_break_80",
-  "page_break"
+  "page_break",
+  "sales_order",
+  "sales_order_item"
  ],
  "fields": [
   {
@@ -182,6 +186,7 @@
    "width": "300px"
   },
   {
+   "fetch_from": "item_code.image",
    "fieldname": "image",
    "fieldtype": "Attach",
    "hidden": 1,
@@ -205,6 +210,7 @@
    "fieldname": "received_qty",
    "fieldtype": "Float",
    "label": "Received Quantity",
+   "no_copy": 1,
    "oldfieldname": "received_qty",
    "oldfieldtype": "Currency",
    "print_hide": 1,
@@ -493,6 +499,7 @@
   {
    "fieldname": "rejected_warehouse",
    "fieldtype": "Link",
+   "ignore_user_permissions": 1,
    "label": "Rejected Warehouse",
    "no_copy": 1,
    "oldfieldname": "rejected_warehouse",
@@ -859,7 +866,8 @@
    "label": "Purchase Receipt Item",
    "no_copy": 1,
    "print_hide": 1,
-   "read_only": 1
+   "read_only": 1,
+   "search_index": 1
   },
   {
    "collapsible": 1,
@@ -916,7 +924,8 @@
    "label": "Delivery Note Item",
    "no_copy": 1,
    "print_hide": 1,
-   "read_only": 1
+   "read_only": 1,
+   "search_index": 1
   },
   {
    "collapsible": 1,
@@ -974,7 +983,8 @@
    "label": "Purchase Invoice Item",
    "no_copy": 1,
    "print_hide": 1,
-   "read_only": 1
+   "read_only": 1,
+   "search_index": 1
   },
   {
    "fieldname": "product_bundle",
@@ -1005,12 +1015,46 @@
    "fieldtype": "Check",
    "label": "Has Item Scanned",
    "read_only": 1
+  },
+  {
+   "fieldname": "rate_difference_with_purchase_invoice",
+   "fieldtype": "Currency",
+   "label": "Rate Difference with Purchase Invoice",
+   "no_copy": 1,
+   "print_hide": 1,
+   "read_only": 1
+  },
+  {
+   "fieldname": "wip_composite_asset",
+   "fieldtype": "Link",
+   "label": "WIP Composite Asset",
+   "options": "Asset"
+  },
+  {
+   "fieldname": "sales_order",
+   "fieldtype": "Link",
+   "label": "Sales Order",
+   "no_copy": 1,
+   "options": "Sales Order",
+   "print_hide": 1,
+   "read_only": 1,
+   "search_index": 1
+  },
+  {
+   "fieldname": "sales_order_item",
+   "fieldtype": "Data",
+   "hidden": 1,
+   "label": "Sales Order Item",
+   "no_copy": 1,
+   "print_hide": 1,
+   "read_only": 1,
+   "search_index": 1
   }
  ],
  "idx": 1,
  "istable": 1,
  "links": [],
- "modified": "2022-11-02 12:49:28.746701",
+ "modified": "2023-12-25 22:32:09.801965",
  "modified_by": "Administrator",
  "module": "Stock",
  "name": "Purchase Receipt Item",

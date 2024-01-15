@@ -15,7 +15,7 @@ from erpnext.accounts.general_ledger import (
 	make_reverse_gl_entries,
 	process_gl_map,
 )
-from erpnext.accounts.utils import get_fiscal_year
+from erpnext.accounts.utils import cancel_exchange_gain_loss_journal, get_fiscal_year
 from erpnext.controllers.accounts_controller import AccountsController
 from erpnext.stock import get_warehouse_account_map
 from erpnext.stock.doctype.inventory_dimension.inventory_dimension import (
@@ -62,9 +62,12 @@ class StockController(AccountsController):
 			)
 		)
 
+		is_asset_pr = any(d.get("is_fixed_asset") for d in self.get("items"))
+
 		if (
 			cint(erpnext.is_perpetual_inventory_enabled(self.company))
 			or provisional_accounting_for_non_stock_items
+			or is_asset_pr
 		):
 			warehouse_account = get_warehouse_account_map(self.company)
 
@@ -72,11 +75,6 @@ class StockController(AccountsController):
 				if not gl_entries:
 					gl_entries = self.get_gl_entries(warehouse_account)
 				make_gl_entries(gl_entries, from_repost=from_repost)
-
-		elif self.doctype in ["Purchase Receipt", "Purchase Invoice"] and self.docstatus == 1:
-			gl_entries = []
-			gl_entries = self.get_asset_gl_entry(gl_entries)
-			make_gl_entries(gl_entries, from_repost=from_repost)
 
 	def validate_serialized_batch(self):
 		from erpnext.stock.doctype.serial_no.serial_no import get_serial_nos
@@ -201,6 +199,12 @@ class StockController(AccountsController):
 					warehouse_asset_account = warehouse_account[item_row.get("warehouse")]["account"]
 
 				expense_account = frappe.get_cached_value("Company", self.company, "default_expense_account")
+				if not expense_account:
+					frappe.throw(
+						_(
+							"Please set default cost of goods sold account in company {0} for booking rounding gain and loss during stock transfer"
+						).format(frappe.bold(self.company))
+					)
 
 				gl_list.append(
 					self.get_gl_dict(
@@ -329,9 +333,10 @@ class StockController(AccountsController):
 		"""Create batches if required. Called before submit"""
 		for d in self.items:
 			if d.get(warehouse_field) and not d.batch_no:
-				has_batch_no, create_new_batch = frappe.db.get_value(
+				has_batch_no, create_new_batch = frappe.get_cached_value(
 					"Item", d.item_code, ["has_batch_no", "create_new_batch"]
 				)
+
 				if has_batch_no and create_new_batch:
 					d.batch_no = (
 						frappe.get_doc(
@@ -414,7 +419,7 @@ class StockController(AccountsController):
 				"voucher_no": self.name,
 				"voucher_detail_no": d.name,
 				"actual_qty": (self.docstatus == 1 and 1 or -1) * flt(d.get("stock_qty")),
-				"stock_uom": frappe.db.get_value(
+				"stock_uom": frappe.get_cached_value(
 					"Item", args.get("item_code") or d.get("item_code"), "stock_uom"
 				),
 				"incoming_rate": 0,
@@ -441,7 +446,43 @@ class StockController(AccountsController):
 			if not dimension:
 				continue
 
-			if row.get(dimension.source_fieldname):
+			if self.doctype in [
+				"Purchase Invoice",
+				"Purchase Receipt",
+				"Sales Invoice",
+				"Delivery Note",
+				"Stock Entry",
+			]:
+				if (
+					(
+						sl_dict.actual_qty > 0
+						and not self.get("is_return")
+						or sl_dict.actual_qty < 0
+						and self.get("is_return")
+					)
+					and self.doctype in ["Purchase Invoice", "Purchase Receipt"]
+				) or (
+					(
+						sl_dict.actual_qty < 0
+						and not self.get("is_return")
+						or sl_dict.actual_qty > 0
+						and self.get("is_return")
+					)
+					and self.doctype in ["Sales Invoice", "Delivery Note", "Stock Entry"]
+				):
+					sl_dict[dimension.target_fieldname] = row.get(dimension.source_fieldname)
+				else:
+					fieldname_start_with = "to"
+					if self.doctype in ["Purchase Invoice", "Purchase Receipt"]:
+						fieldname_start_with = "from"
+
+					fieldname = f"{fieldname_start_with}_{dimension.source_fieldname}"
+					sl_dict[dimension.target_fieldname] = row.get(fieldname)
+
+					if not sl_dict.get(dimension.target_fieldname):
+						sl_dict[dimension.target_fieldname] = row.get(dimension.source_fieldname)
+
+			elif row.get(dimension.source_fieldname):
 				sl_dict[dimension.target_fieldname] = row.get(dimension.source_fieldname)
 
 			if not sl_dict.get(dimension.target_fieldname) and dimension.fetch_from_parent:
@@ -470,6 +511,7 @@ class StockController(AccountsController):
 		make_sl_entries(sl_entries, allow_negative_stock, via_landed_cost_voucher)
 
 	def make_gl_entries_on_cancel(self):
+		cancel_exchange_gain_loss_journal(frappe._dict(doctype=self.doctype, name=self.name))
 		if frappe.db.sql(
 			"""select name from `tabGL Entry` where voucher_type=%s
 			and voucher_no=%s""",
@@ -610,7 +652,7 @@ class StockController(AccountsController):
 	def validate_customer_provided_item(self):
 		for d in self.get("items"):
 			# Customer Provided parts will have zero valuation rate
-			if frappe.db.get_value("Item", d.item_code, "is_customer_provided_item"):
+			if frappe.get_cached_value("Item", d.item_code, "is_customer_provided_item"):
 				d.allow_zero_valuation_rate = 1
 
 	def set_rate_of_stock_uom(self):
@@ -627,13 +669,21 @@ class StockController(AccountsController):
 				d.stock_uom_rate = d.rate / (d.conversion_factor or 1)
 
 	def validate_internal_transfer(self):
-		if (
-			self.doctype in ("Sales Invoice", "Delivery Note", "Purchase Invoice", "Purchase Receipt")
-			and self.is_internal_transfer()
-		):
-			self.validate_in_transit_warehouses()
-			self.validate_multi_currency()
-			self.validate_packed_items()
+		if self.doctype in ("Sales Invoice", "Delivery Note", "Purchase Invoice", "Purchase Receipt"):
+			if self.is_internal_transfer():
+				self.validate_in_transit_warehouses()
+				self.validate_multi_currency()
+				self.validate_packed_items()
+			else:
+				self.validate_internal_transfer_warehouse()
+
+	def validate_internal_transfer_warehouse(self):
+		for row in self.items:
+			if row.get("target_warehouse"):
+				row.target_warehouse = None
+
+			if row.get("from_warehouse"):
+				row.from_warehouse = None
 
 	def validate_in_transit_warehouses(self):
 		if (
@@ -723,7 +773,7 @@ class StockController(AccountsController):
 		message += _("Please adjust the qty or edit {0} to proceed.").format(rule_link)
 		return message
 
-	def repost_future_sle_and_gle(self):
+	def repost_future_sle_and_gle(self, force=False):
 		args = frappe._dict(
 			{
 				"posting_date": self.posting_date,
@@ -734,7 +784,10 @@ class StockController(AccountsController):
 			}
 		)
 
-		if future_sle_exists(args) or repost_required_for_queue(self):
+		if self.docstatus == 2:
+			force = True
+
+		if force or future_sle_exists(args) or repost_required_for_queue(self):
 			item_based_reposting = cint(
 				frappe.db.get_single_value("Stock Reposting Settings", "item_based_reposting")
 			)
@@ -860,6 +913,8 @@ def is_reposting_pending():
 
 def future_sle_exists(args, sl_entries=None):
 	key = (args.voucher_type, args.voucher_no)
+	if not hasattr(frappe.local, "future_sle"):
+		frappe.local.future_sle = {}
 
 	if validate_future_sle_not_exists(args, key, sl_entries):
 		return False
@@ -904,6 +959,9 @@ def validate_future_sle_not_exists(args, key, sl_entries=None):
 		item_key = (args.get("item_code"), args.get("warehouse"))
 
 	if not sl_entries and hasattr(frappe.local, "future_sle"):
+		if key not in frappe.local.future_sle:
+			return False
+
 		if not frappe.local.future_sle.get(key) or (
 			item_key and item_key not in frappe.local.future_sle.get(key)
 		):
@@ -911,9 +969,6 @@ def validate_future_sle_not_exists(args, key, sl_entries=None):
 
 
 def get_cached_data(args, key):
-	if not hasattr(frappe.local, "future_sle"):
-		frappe.local.future_sle = {}
-
 	if key not in frappe.local.future_sle:
 		frappe.local.future_sle[key] = frappe._dict({})
 
@@ -989,8 +1044,6 @@ def create_item_wise_repost_entries(voucher_type, voucher_no, allow_zero_rate=Fa
 
 		repost_entry = frappe.new_doc("Repost Item Valuation")
 		repost_entry.based_on = "Item and Warehouse"
-		repost_entry.voucher_type = voucher_type
-		repost_entry.voucher_no = voucher_no
 
 		repost_entry.item_code = sle.item_code
 		repost_entry.warehouse = sle.warehouse

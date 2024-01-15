@@ -86,6 +86,10 @@ class DeliveryNote(SellingController):
 				]
 			)
 
+	def onload(self):
+		if self.docstatus == 0:
+			self.set_onload("has_unpacked_items", self.has_unpacked_items())
+
 	def before_print(self, settings=None):
 		def toggle_print_hide(meta, fieldname):
 			df = meta.get_field(fieldname)
@@ -118,7 +122,7 @@ class DeliveryNote(SellingController):
 
 	def so_required(self):
 		"""check in manage account if sales order required or not"""
-		if frappe.db.get_value("Selling Settings", None, "so_required") == "Yes":
+		if frappe.db.get_single_value("Selling Settings", "so_required") == "Yes":
 			for d in self.get("items"):
 				if not d.against_sales_order:
 					frappe.throw(_("Sales Order required for Item {0}").format(d.item_code))
@@ -135,8 +139,12 @@ class DeliveryNote(SellingController):
 		self.validate_uom_is_integer("uom", "qty")
 		self.validate_with_previous_doc()
 
+		if self.get("_action") == "submit":
+			self.validate_duplicate_serial_nos()
+
 		from erpnext.stock.doctype.packed_item.packed_item import make_packing_list
 
+		self.set_product_bundle_reference_in_packed_items()  # should be called before `make_packing_list`
 		make_packing_list(self)
 
 		if self._action != "submit" and not self.is_return:
@@ -205,7 +213,7 @@ class DeliveryNote(SellingController):
 		super(DeliveryNote, self).validate_warehouse()
 
 		for d in self.get_item_list():
-			if not d["warehouse"] and frappe.db.get_value("Item", d["item_code"], "is_stock_item") == 1:
+			if not d["warehouse"] and frappe.get_cached_value("Item", d["item_code"], "is_stock_item") == 1:
 				frappe.throw(_("Warehouse required for stock Item {0}").format(d["item_code"]))
 
 	def update_current_stock(self):
@@ -228,6 +236,7 @@ class DeliveryNote(SellingController):
 
 	def on_submit(self):
 		self.validate_packed_qty()
+		self.update_pick_list_status()
 
 		# Check for Approving Authority
 		frappe.get_doc("Authorization Control").validate_approving_authority(
@@ -298,20 +307,26 @@ class DeliveryNote(SellingController):
 			)
 
 	def validate_packed_qty(self):
-		"""
-		Validate that if packed qty exists, it should be equal to qty
-		"""
-		if not any(flt(d.get("packed_qty")) for d in self.get("items")):
-			return
-		has_error = False
-		for d in self.get("items"):
-			if flt(d.get("qty")) != flt(d.get("packed_qty")):
-				frappe.msgprint(
-					_("Packed quantity must equal quantity for Item {0} in row {1}").format(d.item_code, d.idx)
-				)
-				has_error = True
-		if has_error:
-			raise frappe.ValidationError
+		"""Validate that if packed qty exists, it should be equal to qty"""
+
+		if frappe.db.exists("Packing Slip", {"docstatus": 1, "delivery_note": self.name}):
+			product_bundle_list = self.get_product_bundle_list()
+			for item in self.items + self.packed_items:
+				if (
+					item.item_code not in product_bundle_list
+					and flt(item.packed_qty)
+					and flt(item.packed_qty) != flt(item.qty)
+				):
+					frappe.throw(
+						_("Row {0}: Packed Qty must be equal to {1} Qty.").format(
+							item.idx, frappe.bold(item.doctype)
+						)
+					)
+
+	def update_pick_list_status(self):
+		from erpnext.stock.doctype.pick_list.pick_list import update_pick_list_status
+
+		update_pick_list_status(self.pick_list)
 
 	def check_next_docstatus(self):
 		submit_rv = frappe.db.sql(
@@ -383,6 +398,49 @@ class DeliveryNote(SellingController):
 					"Could not create Credit Note automatically, please uncheck 'Issue Credit Note' and submit again"
 				)
 			)
+
+	def has_unpacked_items(self):
+		product_bundle_list = self.get_product_bundle_list()
+
+		for item in self.items + self.packed_items:
+			if item.item_code not in product_bundle_list and flt(item.packed_qty) < flt(item.qty):
+				return True
+
+		return False
+
+	def get_product_bundle_list(self):
+		items_list = [item.item_code for item in self.items]
+		return frappe.db.get_all(
+			"Product Bundle",
+			filters={"new_item_code": ["in", items_list], "disabled": 0},
+			pluck="name",
+		)
+
+	def validate_duplicate_serial_nos(self):
+		serial_nos = []
+		for item in self.items:
+			if not item.serial_no:
+				continue
+
+			for serial_no in item.serial_no.split("\n"):
+				if serial_no in serial_nos:
+					frappe.throw(
+						_("Row #{0}: Serial No {1} is already selected.").format(item.idx, serial_no),
+						title=_("Duplicate Serial No"),
+					)
+				else:
+					serial_nos.append(serial_no)
+
+	def set_product_bundle_reference_in_packed_items(self):
+		if self.packed_items and ((self.is_return and self.return_against) or self.amended_from):
+			if items_ref_map := {
+				item.dn_detail or item.get("_amended_from"): item.name
+				for item in self.items
+				if item.dn_detail or item.get("_amended_from")
+			}:
+				for item in self.packed_items:
+					if item.parent_detail_docname in items_ref_map:
+						item.parent_detail_docname = items_ref_map[item.parent_detail_docname]
 
 
 def update_billed_amount_based_on_so(so_detail, update_modified=True):
@@ -607,8 +665,6 @@ def make_sales_invoice(source_name, target_doc=None):
 	if automatically_fetch_payment_terms:
 		doc.set_payment_schedule()
 
-	doc.set_onload("ignore_price_list", True)
-
 	return doc
 
 
@@ -675,6 +731,12 @@ def make_installation_note(source_name, target_doc=None):
 
 @frappe.whitelist()
 def make_packing_slip(source_name, target_doc=None):
+	def set_missing_values(source, target):
+		target.run_method("set_missing_values")
+
+	def update_item(obj, target, source_parent):
+		target.qty = flt(obj.qty) - flt(obj.packed_qty)
+
 	doclist = get_mapped_doc(
 		"Delivery Note",
 		source_name,
@@ -689,12 +751,34 @@ def make_packing_slip(source_name, target_doc=None):
 				"field_map": {
 					"item_code": "item_code",
 					"item_name": "item_name",
+					"batch_no": "batch_no",
 					"description": "description",
 					"qty": "qty",
+					"stock_uom": "stock_uom",
+					"name": "dn_detail",
 				},
+				"postprocess": update_item,
+				"condition": lambda item: (
+					not frappe.db.exists("Product Bundle", {"new_item_code": item.item_code, "disabled": 0})
+					and flt(item.packed_qty) < flt(item.qty)
+				),
+			},
+			"Packed Item": {
+				"doctype": "Packing Slip Item",
+				"field_map": {
+					"item_code": "item_code",
+					"item_name": "item_name",
+					"batch_no": "batch_no",
+					"description": "description",
+					"qty": "qty",
+					"name": "pi_detail",
+				},
+				"postprocess": update_item,
+				"condition": lambda item: (flt(item.packed_qty) < flt(item.qty)),
 			},
 		},
 		target_doc,
+		set_missing_values,
 	)
 
 	return doclist
@@ -913,7 +997,3 @@ def make_inter_company_transaction(doctype, source_name, target_doc=None):
 	)
 
 	return doclist
-
-
-def on_doctype_update():
-	frappe.db.add_index("Delivery Note", ["customer", "is_return", "return_against"])

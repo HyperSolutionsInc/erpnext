@@ -34,16 +34,18 @@
 				</a>
 			</ul>
 		</div>
-		<div class="form-column col-sm-6">
-			<div class="page-header-actions-block" data-html-block="header-actions">
-				<p>
-					<a href="/api/method/erpnext.accounts.doctype.payment_request.payment_request.make_payment_request?dn={{ doc.name }}&dt={{ doc.doctype }}&submit_doc=1&order_type=Shopping Cart"
-						class="btn btn-primary btn-sm" id="pay-for-order">
-						{{ _("Pay") }} {{doc.get_formatted("grand_total") }}
-					</a>
-				</p>
+		{% if show_pay_button %}
+			<div class="form-column col-sm-6">
+				<div class="page-header-actions-block" data-html-block="header-actions">
+					<p>
+						<a href="/api/method/erpnext.accounts.doctype.payment_request.payment_request.make_payment_request?dn={{ doc.name }}&dt={{ doc.doctype }}&submit_doc=1&order_type=Shopping Cart"
+							class="btn btn-primary btn-sm" id="pay-for-order">
+							{{ _("Pay") }} {{doc.get_formatted("grand_total") }}
+						</a>
+					</p>
+				</div>
 			</div>
-		</div>
+		{% endif %}
 	</div>
 {% endblock %}
 
@@ -163,7 +165,6 @@
 		</div>
 	{% endif %}
 
-
 	{% if attachments %}
 		<div class="order-item-table">
 			<div class="row order-items order-item-header text-muted">
@@ -190,6 +191,7 @@
 		</div>
 	{% endif %}
 {% endblock %}
+
 
 {% block script %}
 	<script> {% include "templates/pages/order.js" %}</script>

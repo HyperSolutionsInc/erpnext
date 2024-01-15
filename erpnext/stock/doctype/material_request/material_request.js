@@ -102,16 +102,25 @@ frappe.ui.form.on('Material Request', {
 
 		if (frm.doc.docstatus == 1 && frm.doc.status != 'Stopped') {
 			let precision = frappe.defaults.get_default("float_precision");
+
+			if (flt(frm.doc.per_received, precision) < 100) {
+				frm.add_custom_button(__('Stop'),
+					() => frm.events.update_status(frm, 'Stopped'));
+			}
+
 			if (flt(frm.doc.per_ordered, precision) < 100) {
 				let add_create_pick_list_button = () => {
 					frm.add_custom_button(__('Pick List'),
 						() => frm.events.create_pick_list(frm), __('Create'));
 				}
 
-				if (frm.doc.material_request_type === "Material Transfer") {
+				if (frm.doc.material_request_type === 'Material Transfer') {
 					add_create_pick_list_button();
-					frm.add_custom_button(__("Transfer Material"),
+					frm.add_custom_button(__('Material Transfer'),
 						() => frm.events.make_stock_entry(frm), __('Create'));
+
+					frm.add_custom_button(__('Material Transfer (In Transit)'),
+						() => frm.events.make_in_transit_stock_entry(frm), __('Create'));
 				}
 
 				if (frm.doc.material_request_type === "Material Issue") {
@@ -145,11 +154,6 @@ frappe.ui.form.on('Material Request', {
 				}
 
 				frm.page.set_inner_btn_group_as_primary(__('Create'));
-
-				// stop
-				frm.add_custom_button(__('Stop'),
-					() => frm.events.update_status(frm, 'Stopped'));
-
 			}
 		}
 
@@ -195,9 +199,8 @@ frappe.ui.form.on('Material Request', {
 
 	get_item_data: function(frm, item, overwrite_warehouse=false) {
 		if (item && !item.item_code) { return; }
-		frm.call({
+		frappe.call({
 			method: "erpnext.stock.get_item_details.get_item_details",
-			child: item,
 			args: {
 				args: {
 					item_code: item.item_code,
@@ -215,7 +218,8 @@ frappe.ui.form.on('Material Request', {
 					plc_conversion_rate: 1,
 					rate: item.rate,
 					uom: item.uom,
-					conversion_factor: item.conversion_factor
+					conversion_factor: item.conversion_factor,
+					project: item.project,
 				},
 				overwrite_warehouse: overwrite_warehouse
 			},
@@ -333,6 +337,46 @@ frappe.ui.form.on('Material Request', {
 		});
 	},
 
+	make_in_transit_stock_entry(frm) {
+		frappe.prompt(
+			[
+				{
+					label: __('In Transit Warehouse'),
+					fieldname: 'in_transit_warehouse',
+					fieldtype: 'Link',
+					options: 'Warehouse',
+					reqd: 1,
+					get_query: () => {
+						return{
+							filters: {
+								'company': frm.doc.company,
+								'is_group': 0,
+								'warehouse_type': 'Transit'
+							}
+						}
+					}
+				}
+			],
+			(values) => {
+				frappe.call({
+					method: "erpnext.stock.doctype.material_request.material_request.make_in_transit_stock_entry",
+					args: {
+						source_name: frm.doc.name,
+						in_transit_warehouse: values.in_transit_warehouse
+					},
+					callback: function(r) {
+						if (r.message) {
+							let doc = frappe.model.sync(r.message);
+							frappe.set_route('Form', doc[0].doctype, doc[0].name);
+						}
+					}
+				})
+			},
+			__('In Transit Transfer'),
+			__('Create Stock Entry')
+		)
+	},
+
 	create_pick_list: (frm) => {
 		frappe.model.open_mapped_doc({
 			method: "erpnext.stock.doctype.material_request.material_request.create_pick_list",
@@ -366,10 +410,11 @@ frappe.ui.form.on('Material Request', {
 
 frappe.ui.form.on("Material Request Item", {
 	qty: function (frm, doctype, name) {
-		var d = locals[doctype][name];
-		if (flt(d.qty) < flt(d.min_order_qty)) {
+		const item = locals[doctype][name];
+		if (flt(item.qty) < flt(item.min_order_qty)) {
 			frappe.msgprint(__("Warning: Material Requested Qty is less than Minimum Order Qty"));
 		}
+		frm.events.get_item_data(frm, item, false);
 	},
 
 	from_warehouse: function(frm, doctype, name) {

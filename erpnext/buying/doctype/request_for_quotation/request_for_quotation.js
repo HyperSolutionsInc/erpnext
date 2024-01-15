@@ -124,12 +124,11 @@ frappe.ui.form.on("Request for Quotation",{
 								frappe.urllib.get_full_url(
 									"/api/method/erpnext.buying.doctype.request_for_quotation.request_for_quotation.get_pdf?" +
 									new URLSearchParams({
-										doctype: frm.doc.doctype,
 										name: frm.doc.name,
 										supplier: data.supplier,
 										print_format: data.print_format || "Standard",
 										language: data.language || frappe.boot.lang,
-										letter_head: data.letter_head || frm.doc.letter_head || "",
+										letterhead: data.letter_head || frm.doc.letter_head || "",
 									}).toString()
 								)
 							);
@@ -246,19 +245,21 @@ frappe.ui.form.on("Request for Quotation",{
 			]
 		});
 
-		dialog.fields_dict['supplier'].df.onchange = () => {
-			var supplier = dialog.get_value('supplier');
-			frm.call('get_supplier_email_preview', {supplier: supplier}).then(result => {
+		dialog.fields_dict["supplier"].df.onchange = () => {
+			frm.call("get_supplier_email_preview", {
+				supplier: dialog.get_value("supplier"),
+			}).then(({ message }) => {
 				dialog.fields_dict.email_preview.$wrapper.empty();
-				dialog.fields_dict.email_preview.$wrapper.append(result.message);
+				dialog.fields_dict.email_preview.$wrapper.append(
+					message.message
+				);
+				dialog.set_value("subject", message.subject);
 			});
-
-		}
+		};
 
 		dialog.fields_dict.note.$wrapper.append(`<p class="small text-muted">This is a preview of the email to be sent. A PDF of the document will
 			automatically be attached with the email.</p>`);
 
-		dialog.set_value("subject", frm.doc.subject);
 		dialog.show();
 	}
 })

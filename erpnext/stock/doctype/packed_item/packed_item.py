@@ -55,7 +55,7 @@ def make_packing_list(doc):
 
 
 def is_product_bundle(item_code: str) -> bool:
-	return bool(frappe.db.exists("Product Bundle", {"new_item_code": item_code}))
+	return bool(frappe.db.exists("Product Bundle", {"new_item_code": item_code, "disabled": 0}))
 
 
 def get_indexed_packed_items_table(doc):
@@ -83,8 +83,8 @@ def reset_packing_list(doc):
 		# 1. items were deleted
 		# 2. if bundle item replaced by another item (same no. of items but different items)
 		# we maintain list to track recurring item rows as well
-		items_before_save = [item.item_code for item in doc_before_save.get("items")]
-		items_after_save = [item.item_code for item in doc.get("items")]
+		items_before_save = [(item.name, item.item_code) for item in doc_before_save.get("items")]
+		items_after_save = [(item.name, item.item_code) for item in doc.get("items")]
 		reset_table = items_before_save != items_after_save
 	else:
 		# reset: if via Update Items OR
@@ -111,7 +111,7 @@ def get_product_bundle_items(item_code):
 			product_bundle_item.uom,
 			product_bundle_item.description,
 		)
-		.where(product_bundle.new_item_code == item_code)
+		.where((product_bundle.new_item_code == item_code) & (product_bundle.disabled == 0))
 		.orderby(product_bundle_item.idx)
 	)
 	return query.run(as_dict=True)
@@ -207,6 +207,9 @@ def update_packed_item_price_data(pi_row, item_data, doc):
 			"conversion_rate": doc.get("conversion_rate"),
 		}
 	)
+	if not row_data.get("transaction_date"):
+		row_data.update({"transaction_date": doc.get("transaction_date")})
+
 	rate = get_price_list_rate(row_data, item_doc).get("price_list_rate")
 
 	pi_row.rate = rate or item_data.get("valuation_rate") or 0.0

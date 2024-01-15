@@ -80,6 +80,12 @@ class LoanRepayment(AccountsController):
 		if amounts.get("due_date"):
 			self.due_date = amounts.get("due_date")
 
+		if hasattr(self, "repay_from_salary") and hasattr(self, "payroll_payable_account"):
+			if self.repay_from_salary and not self.payroll_payable_account:
+				frappe.throw(_("Please set Payroll Payable Account in Loan Repayment"))
+			elif not self.repay_from_salary and self.payroll_payable_account:
+				self.repay_from_salary = 1
+
 	def check_future_entries(self):
 		future_repayment_date = frappe.db.get_value(
 			"Loan Repayment",
@@ -101,7 +107,7 @@ class LoanRepayment(AccountsController):
 		if flt(self.total_interest_paid, precision) > flt(self.interest_payable, precision):
 			if not self.is_term_loan:
 				# get last loan interest accrual date
-				last_accrual_date = get_last_accrual_date(self.against_loan)
+				last_accrual_date = get_last_accrual_date(self.against_loan, self.posting_date)
 
 				# get posting date upto which interest has to be accrued
 				per_day_interest = get_per_day_interest(
@@ -246,6 +252,9 @@ class LoanRepayment(AccountsController):
 		)
 
 	def check_future_accruals(self):
+		if self.is_term_loan:
+			return
+
 		future_accrual_date = frappe.db.get_value(
 			"Loan Interest Accrual",
 			{"posting_date": (">", self.posting_date), "docstatus": 1, "loan": self.against_loan},
@@ -405,6 +414,16 @@ class LoanRepayment(AccountsController):
 		else:
 			payment_account = self.payment_account
 
+		payment_party_type = ""
+		payment_party = ""
+
+		if (
+			hasattr(self, "process_payroll_accounting_entry_based_on_employee")
+			and self.process_payroll_accounting_entry_based_on_employee
+		):
+			payment_party_type = "Employee"
+			payment_party = self.applicant
+
 		if self.total_penalty_paid:
 			gle_map.append(
 				self.get_gl_dict(
@@ -452,6 +471,8 @@ class LoanRepayment(AccountsController):
 					"remarks": _(remarks),
 					"cost_center": self.cost_center,
 					"posting_date": getdate(self.posting_date),
+					"party_type": payment_party_type,
+					"party": payment_party,
 				}
 			)
 		)
@@ -490,6 +511,7 @@ def create_repayment_entry(
 	amount_paid,
 	penalty_amount=None,
 	payroll_payable_account=None,
+	process_payroll_accounting_entry_based_on_employee=0,
 ):
 
 	lr = frappe.get_doc(
@@ -506,6 +528,7 @@ def create_repayment_entry(
 			"amount_paid": amount_paid,
 			"loan_type": loan_type,
 			"payroll_payable_account": payroll_payable_account,
+			"process_payroll_accounting_entry_based_on_employee": process_payroll_accounting_entry_based_on_employee,
 		}
 	).insert()
 
@@ -576,6 +599,8 @@ def regenerate_repayment_schedule(loan, cancel=0):
 	last_repayment_amount = None
 	last_balance_amount = None
 
+	original_repayment_schedule_len = len(loan_doc.get("repayment_schedule"))
+
 	for term in reversed(loan_doc.get("repayment_schedule")):
 		if not term.is_accrued:
 			next_accrual_date = term.payment_date
@@ -593,7 +618,7 @@ def regenerate_repayment_schedule(loan, cancel=0):
 
 	if loan_doc.repayment_method == "Repay Fixed Amount per Period":
 		monthly_repayment_amount = flt(
-			balance_amount / len(loan_doc.get("repayment_schedule")) - accrued_entries
+			balance_amount / (original_repayment_schedule_len - accrued_entries)
 		)
 	else:
 		repayment_period = loan_doc.repayment_periods - accrued_entries
@@ -722,7 +747,7 @@ def get_amounts(amounts, against_loan, posting_date):
 	if due_date:
 		pending_days = date_diff(posting_date, due_date) + 1
 	else:
-		last_accrual_date = get_last_accrual_date(against_loan_doc.name)
+		last_accrual_date = get_last_accrual_date(against_loan_doc.name, posting_date)
 		pending_days = date_diff(posting_date, last_accrual_date) + 1
 
 	if pending_days > 0:

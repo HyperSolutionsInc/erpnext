@@ -58,6 +58,9 @@ def get_data(filters):
 
 
 def get_asset_categories(filters):
+	condition = ""
+	if filters.get("asset_category"):
+		condition += " and asset_category = %(asset_category)s"
 	return frappe.db.sql(
 		"""
 		SELECT asset_category,
@@ -98,15 +101,25 @@ def get_asset_categories(filters):
 								0
 						   end), 0) as cost_of_scrapped_asset
 		from `tabAsset`
-		where docstatus=1 and company=%(company)s and purchase_date <= %(to_date)s
+		where docstatus=1 and company=%(company)s and purchase_date <= %(to_date)s {}
 		group by asset_category
-	""",
-		{"to_date": filters.to_date, "from_date": filters.from_date, "company": filters.company},
+	""".format(
+			condition
+		),
+		{
+			"to_date": filters.to_date,
+			"from_date": filters.from_date,
+			"company": filters.company,
+			"asset_category": filters.get("asset_category"),
+		},
 		as_dict=1,
 	)
 
 
 def get_assets(filters):
+	condition = ""
+	if filters.get("asset_category"):
+		condition = " and a.asset_category = '{}'".format(filters.get("asset_category"))
 	return frappe.db.sql(
 		"""
 		SELECT results.asset_category,
@@ -114,25 +127,31 @@ def get_assets(filters):
 			   sum(results.depreciation_eliminated_during_the_period) as depreciation_eliminated_during_the_period,
 			   sum(results.depreciation_amount_during_the_period) as depreciation_amount_during_the_period
 		from (SELECT a.asset_category,
-				   ifnull(sum(case when ds.schedule_date < %(from_date)s and (ifnull(a.disposal_date, 0) = 0 or a.disposal_date >= %(from_date)s) then
-								   ds.depreciation_amount
+				   ifnull(sum(case when gle.posting_date < %(from_date)s and (ifnull(a.disposal_date, 0) = 0 or a.disposal_date >= %(from_date)s) then
+								   gle.debit
 							  else
 								   0
 							  end), 0) as accumulated_depreciation_as_on_from_date,
 				   ifnull(sum(case when ifnull(a.disposal_date, 0) != 0 and a.disposal_date >= %(from_date)s
-										and a.disposal_date <= %(to_date)s and ds.schedule_date <= a.disposal_date then
-								   ds.depreciation_amount
+										and a.disposal_date <= %(to_date)s and gle.posting_date <= a.disposal_date then
+								   gle.debit
 							  else
 								   0
 							  end), 0) as depreciation_eliminated_during_the_period,
-				   ifnull(sum(case when ds.schedule_date >= %(from_date)s and ds.schedule_date <= %(to_date)s
-										and (ifnull(a.disposal_date, 0) = 0 or ds.schedule_date <= a.disposal_date) then
-								   ds.depreciation_amount
+				   ifnull(sum(case when gle.posting_date >= %(from_date)s and gle.posting_date <= %(to_date)s
+										and (ifnull(a.disposal_date, 0) = 0 or gle.posting_date <= a.disposal_date) then
+								   gle.debit
 							  else
 								   0
 							  end), 0) as depreciation_amount_during_the_period
-			from `tabAsset` a, `tabDepreciation Schedule` ds
-			where a.docstatus=1 and a.company=%(company)s and a.purchase_date <= %(to_date)s and a.name = ds.parent and ifnull(ds.journal_entry, '') != ''
+			from `tabGL Entry` gle
+			join `tabAsset` a on
+				gle.against_voucher = a.name
+			join `tabAsset Category Account` aca on
+				aca.parent = a.asset_category and aca.company_name = %(company)s
+			join `tabCompany` company on
+				company.name = %(company)s
+			where a.docstatus=1 and a.company=%(company)s and a.purchase_date <= %(to_date)s and gle.debit != 0 and gle.is_cancelled = 0 and gle.account = ifnull(aca.depreciation_expense_account, company.depreciation_expense_account) {0}
 			group by a.asset_category
 			union
 			SELECT a.asset_category,
@@ -148,10 +167,12 @@ def get_assets(filters):
 							  end), 0) as depreciation_eliminated_during_the_period,
 				   0 as depreciation_amount_during_the_period
 			from `tabAsset` a
-			where a.docstatus=1 and a.company=%(company)s and a.purchase_date <= %(to_date)s
+			where a.docstatus=1 and a.company=%(company)s and a.purchase_date <= %(to_date)s {0}
 			group by a.asset_category) as results
 		group by results.asset_category
-		""",
+		""".format(
+			condition
+		),
 		{"to_date": filters.to_date, "from_date": filters.from_date, "company": filters.company},
 		as_dict=1,
 	)

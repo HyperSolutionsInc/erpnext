@@ -4,7 +4,7 @@
 frappe.provide("erpnext.utils");
 
 const SALES_DOCTYPES = ['Quotation', 'Sales Order', 'Delivery Note', 'Sales Invoice'];
-const PURCHASE_DOCTYPES = ['Purchase Order', 'Purchase Receipt', 'Purchase Invoice'];
+const PURCHASE_DOCTYPES = ['Supplier Quotation','Purchase Order', 'Purchase Receipt', 'Purchase Invoice'];
 
 erpnext.utils.get_party_details = function(frm, method, args, callback) {
 	if (!method) {
@@ -16,8 +16,8 @@ erpnext.utils.get_party_details = function(frm, method, args, callback) {
 			|| (frm.doc.party_name && in_list(['Quotation', 'Opportunity'], frm.doc.doctype))) {
 
 			let party_type = "Customer";
-			if (frm.doc.quotation_to && frm.doc.quotation_to === "Lead") {
-				party_type = "Lead";
+			if (frm.doc.quotation_to && in_list(["Lead", "Prospect"], frm.doc.quotation_to)) {
+				party_type = frm.doc.quotation_to;
 			}
 
 			args = {

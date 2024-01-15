@@ -15,12 +15,16 @@ from erpnext.accounts.doctype.loyalty_program.loyalty_program import (
 	get_loyalty_program_details_with_points,
 	validate_loyalty_points,
 )
+from erpnext.accounts.doctype.repost_accounting_ledger.repost_accounting_ledger import (
+	validate_docs_for_deferred_accounting,
+	validate_docs_for_voucher_types,
+)
 from erpnext.accounts.doctype.tax_withholding_category.tax_withholding_category import (
 	get_party_tax_withholding_details,
 )
 from erpnext.accounts.general_ledger import get_round_off_account_and_cost_center
 from erpnext.accounts.party import get_due_date, get_party_account, get_party_details
-from erpnext.accounts.utils import get_account_currency
+from erpnext.accounts.utils import cancel_exchange_gain_loss_journal, get_account_currency
 from erpnext.assets.doctype.asset.depreciation import (
 	depreciate_asset,
 	get_disposal_account_and_cost_center,
@@ -100,13 +104,11 @@ class SalesInvoice(SellingController):
 		self.validate_debit_to_acc()
 		self.clear_unallocated_advances("Sales Invoice Advance", "advances")
 		self.add_remarks()
-		self.validate_write_off_account()
-		self.validate_account_for_change_amount()
 		self.validate_fixed_asset()
 		self.set_income_account_for_fixed_assets()
 		self.validate_item_cost_centers()
-		self.validate_income_account()
 		self.check_conversion_rate()
+		self.validate_accounts()
 
 		validate_inter_company_party(
 			self.doctype, self.customer, self.company, self.inter_company_invoice_reference
@@ -144,7 +146,7 @@ class SalesInvoice(SellingController):
 
 		self.set_against_income_account()
 		self.validate_time_sheets_are_submitted()
-		self.validate_multiple_billing("Delivery Note", "dn_detail", "amount", "items")
+		self.validate_multiple_billing("Delivery Note", "dn_detail", "amount")
 		if not self.is_return:
 			self.validate_serial_numbers()
 		else:
@@ -169,6 +171,18 @@ class SalesInvoice(SellingController):
 			validate_loyalty_points(self, self.loyalty_points)
 
 		self.reset_default_field_value("set_warehouse", "items", "warehouse")
+
+	def validate_accounts(self):
+		self.validate_write_off_account()
+		self.validate_account_for_change_amount()
+		self.validate_income_account()
+
+	def validate_for_repost(self):
+		self.validate_write_off_account()
+		self.validate_account_for_change_amount()
+		self.validate_income_account()
+		validate_docs_for_voucher_types(["Sales Invoice"])
+		validate_docs_for_deferred_accounting([self.name], [])
 
 	def validate_fixed_asset(self):
 		for d in self.get("items"):
@@ -249,6 +263,7 @@ class SalesInvoice(SellingController):
 
 		self.update_status_updater_args()
 		self.update_prevdoc_status()
+
 		self.update_billing_status_in_dn()
 		self.clear_unallocated_mode_of_payments()
 
@@ -368,6 +383,7 @@ class SalesInvoice(SellingController):
 			self.repost_future_sle_and_gle()
 
 		self.db_set("status", "Cancelled")
+		self.db_set("repost_required", 0)
 
 		if (
 			frappe.db.get_single_value("Selling Settings", "sales_update_frequency") == "Each Transaction"
@@ -390,6 +406,12 @@ class SalesInvoice(SellingController):
 			"GL Entry",
 			"Stock Ledger Entry",
 			"Repost Item Valuation",
+			"Repost Payment Ledger",
+			"Repost Payment Ledger Items",
+			"Repost Accounting Ledger",
+			"Repost Accounting Ledger Items",
+			"Unreconcile Payment",
+			"Unreconcile Payment Entries",
 			"Payment Ledger Entry",
 		)
 
@@ -513,6 +535,25 @@ class SalesInvoice(SellingController):
 
 	def on_update(self):
 		self.set_paid_amount()
+
+	def on_update_after_submit(self):
+		if hasattr(self, "repost_required"):
+			fields_to_check = [
+				"additional_discount_account",
+				"cash_bank_account",
+				"account_for_change_amount",
+				"write_off_account",
+				"loyalty_redemption_account",
+				"unrealized_profit_loss_account",
+			]
+			child_tables = {
+				"items": ("income_account", "expense_account", "discount_account"),
+				"taxes": ("account_head",),
+			}
+			self.needs_repost = self.check_if_fields_updated(fields_to_check, child_tables)
+			if self.needs_repost:
+				self.validate_for_repost()
+				self.db_set("repost_required", self.needs_repost)
 
 	def set_paid_amount(self):
 		paid_amount = 0.0
@@ -917,10 +958,16 @@ class SalesInvoice(SellingController):
 
 	def check_prev_docstatus(self):
 		for d in self.get("items"):
-			if d.sales_order and frappe.db.get_value("Sales Order", d.sales_order, "docstatus") != 1:
+			if (
+				d.sales_order
+				and frappe.db.get_value("Sales Order", d.sales_order, "docstatus", cache=True) != 1
+			):
 				frappe.throw(_("Sales Order {0} is not submitted").format(d.sales_order))
 
-			if d.delivery_note and frappe.db.get_value("Delivery Note", d.delivery_note, "docstatus") != 1:
+			if (
+				d.delivery_note
+				and frappe.db.get_value("Delivery Note", d.delivery_note, "docstatus", cache=True) != 1
+			):
 				throw(_("Delivery Note {0} is not submitted").format(d.delivery_note))
 
 	def make_gl_entries(self, gl_entries=None, from_repost=False):
@@ -945,7 +992,10 @@ class SalesInvoice(SellingController):
 					merge_entries=False,
 					from_repost=from_repost,
 				)
+
+				self.make_exchange_gain_loss_journal()
 			elif self.docstatus == 2:
+				cancel_exchange_gain_loss_journal(frappe._dict(doctype=self.doctype, name=self.name))
 				make_reverse_gl_entries(voucher_type=self.doctype, voucher_no=self.name)
 
 			if update_outstanding == "No":
@@ -970,10 +1020,10 @@ class SalesInvoice(SellingController):
 		self.make_customer_gl_entry(gl_entries)
 
 		self.make_tax_gl_entries(gl_entries)
-		self.make_exchange_gain_loss_gl_entries(gl_entries)
 		self.make_internal_transfer_gl_entries(gl_entries)
 
 		self.make_item_gl_entries(gl_entries)
+		self.make_precision_loss_gl_entry(gl_entries)
 		self.make_discount_gl_entries(gl_entries)
 
 		# merge gl entries before adding pos entries
@@ -989,7 +1039,7 @@ class SalesInvoice(SellingController):
 
 	def make_customer_gl_entry(self, gl_entries):
 		# Checked both rounding_adjustment and rounded_total
-		# because rounded_total had value even before introcution of posting GLE based on rounded total
+		# because rounded_total had value even before introduction of posting GLE based on rounded total
 		grand_total = (
 			self.rounded_total if (self.rounding_adjustment and self.rounded_total) else self.grand_total
 		)
@@ -1084,7 +1134,12 @@ class SalesInvoice(SellingController):
 
 					if self.is_return:
 						fixed_asset_gl_entries = get_gl_entries_on_asset_regain(
-							asset, item.base_net_amount, item.finance_book, self.get("doctype"), self.get("name")
+							asset,
+							item.base_net_amount,
+							item.finance_book,
+							self.get("doctype"),
+							self.get("name"),
+							self.get("posting_date"),
 						)
 						asset.db_set("disposal_date", None)
 
@@ -1099,7 +1154,12 @@ class SalesInvoice(SellingController):
 							asset.reload()
 
 						fixed_asset_gl_entries = get_gl_entries_on_asset_disposal(
-							asset, item.base_net_amount, item.finance_book, self.get("doctype"), self.get("name")
+							asset,
+							item.base_net_amount,
+							item.finance_book,
+							self.get("doctype"),
+							self.get("name"),
+							self.get("posting_date"),
 						)
 						asset.db_set("disposal_date", self.posting_date)
 
@@ -1214,7 +1274,7 @@ class SalesInvoice(SellingController):
 				if skip_change_gl_entries and payment_mode.account == self.account_for_change_amount:
 					payment_mode.base_amount -= flt(self.change_amount)
 
-				if payment_mode.amount:
+				if payment_mode.base_amount:
 					# POS, make payment entries
 					gl_entries.append(
 						self.get_gl_dict(
@@ -1355,7 +1415,7 @@ class SalesInvoice(SellingController):
 			and not self.is_internal_transfer()
 		):
 			round_off_account, round_off_cost_center = get_round_off_account_and_cost_center(
-				self.company, "Sales Invoice", self.name
+				self.company, "Sales Invoice", self.name, self.use_company_roundoff_cost_center
 			)
 
 			gl_entries.append(
@@ -1367,13 +1427,17 @@ class SalesInvoice(SellingController):
 							self.rounding_adjustment, self.precision("rounding_adjustment")
 						),
 						"credit": flt(self.base_rounding_adjustment, self.precision("base_rounding_adjustment")),
-						"cost_center": self.cost_center or round_off_cost_center,
+						"cost_center": round_off_cost_center
+						if self.use_company_roundoff_cost_center
+						else (self.cost_center or round_off_cost_center),
 					},
 					item=self,
 				)
 			)
 
 	def update_billing_status_in_dn(self, update_modified=True):
+		if self.is_return and not self.update_billed_amount_in_delivery_note:
+			return
 		updated_delivery_notes = []
 		for d in self.get("items"):
 			if d.dn_detail:
@@ -1551,15 +1615,13 @@ class SalesInvoice(SellingController):
 		frappe.db.set_value("Customer", self.customer, "loyalty_program_tier", lp_details.tier_name)
 
 	def get_returned_amount(self):
-		from frappe.query_builder.functions import Coalesce, Sum
+		from frappe.query_builder.functions import Sum
 
 		doc = frappe.qb.DocType(self.doctype)
 		returned_amount = (
 			frappe.qb.from_(doc)
 			.select(Sum(doc.grand_total))
-			.where(
-				(doc.docstatus == 1) & (doc.is_return == 1) & (Coalesce(doc.return_against, "") == self.name)
-			)
+			.where((doc.docstatus == 1) & (doc.is_return == 1) & (doc.return_against == self.name))
 		).run()
 
 		return abs(returned_amount[0][0]) if returned_amount[0][0] else 0
@@ -1872,7 +1934,6 @@ def make_delivery_note(source_name, target_doc=None):
 		set_missing_values,
 	)
 
-	doclist.set_onload("ignore_price_list", True)
 	return doclist
 
 
@@ -2134,9 +2195,18 @@ def make_inter_company_transaction(doctype, source_name, target_doc=None):
 
 
 def get_received_items(reference_name, doctype, reference_fieldname):
+	reference_field = "inter_company_invoice_reference"
+	if doctype == "Purchase Order":
+		reference_field = "inter_company_order_reference"
+
+	filters = {
+		reference_field: reference_name,
+		"docstatus": 1,
+	}
+
 	target_doctypes = frappe.get_all(
 		doctype,
-		filters={"inter_company_invoice_reference": reference_name, "docstatus": 1},
+		filters=filters,
 		as_list=True,
 	)
 
@@ -2316,10 +2386,6 @@ def get_loyalty_programs(customer):
 		return lp_details
 	else:
 		return lp_details
-
-
-def on_doctype_update():
-	frappe.db.add_index("Sales Invoice", ["customer", "is_return", "return_against"])
 
 
 @frappe.whitelist()

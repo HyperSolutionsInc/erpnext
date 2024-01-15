@@ -2,10 +2,12 @@
 # License: GNU General Public License v3. See license.txt
 
 import frappe
+from frappe.query_builder.functions import IfNull
 from frappe.utils import cint, flt, fmt_money, getdate, nowdate
 
 from erpnext.accounts.doctype.pricing_rule.pricing_rule import get_pricing_rule_for_item
 from erpnext.stock.doctype.batch.batch import get_batch_qty
+from erpnext.stock.doctype.warehouse.warehouse import get_child_warehouses
 
 
 def get_web_item_qty_in_stock(item_code, item_warehouse_field, warehouse=None):
@@ -22,23 +24,41 @@ def get_web_item_qty_in_stock(item_code, item_warehouse_field, warehouse=None):
 			"Website Item", {"item_code": template_item_code}, item_warehouse_field
 		)
 
-	if warehouse:
-		stock_qty = frappe.db.sql(
-			"""
-			select GREATEST(S.actual_qty - S.reserved_qty - S.reserved_qty_for_production - S.reserved_qty_for_sub_contract, 0) / IFNULL(C.conversion_factor, 1)
-			from tabBin S
-			inner join `tabItem` I on S.item_code = I.Item_code
-			left join `tabUOM Conversion Detail` C on I.sales_uom = C.uom and C.parent = I.Item_code
-			where S.item_code=%s and S.warehouse=%s""",
-			(item_code, warehouse),
+	if warehouse and frappe.get_cached_value("Warehouse", warehouse, "is_group") == 1:
+		warehouses = get_child_warehouses(warehouse)
+	else:
+		warehouses = [warehouse] if warehouse else []
+
+	total_stock = 0.0
+	if warehouses:
+		qty_field = (
+			"actual_qty"
+			if frappe.db.get_single_value("E Commerce Settings", "show_actual_qty")
+			else "projected_qty"
 		)
 
-		if stock_qty:
-			stock_qty = adjust_qty_for_expired_items(item_code, stock_qty, warehouse)
-			in_stock = stock_qty[0][0] > 0 and 1 or 0
+		BIN = frappe.qb.DocType("Bin")
+		ITEM = frappe.qb.DocType("Item")
+		UOM = frappe.qb.DocType("UOM Conversion Detail")
+
+		for warehouse in warehouses:
+			stock_qty = (
+				frappe.qb.from_(BIN)
+				.select(BIN[qty_field] / IfNull(UOM.conversion_factor, 1))
+				.inner_join(ITEM)
+				.on(BIN.item_code == ITEM.item_code)
+				.left_join(UOM)
+				.on((ITEM.sales_uom == UOM.uom) & (UOM.parent == ITEM.item_code))
+				.where((BIN.item_code == item_code) & (BIN.warehouse == warehouse))
+			).run()
+
+			if stock_qty:
+				total_stock += adjust_qty_for_expired_items(item_code, stock_qty, warehouse)
+
+		in_stock = total_stock > 0 and 1 or 0
 
 	return frappe._dict(
-		{"in_stock": in_stock, "stock_qty": stock_qty, "is_stock_item": is_stock_item}
+		{"in_stock": in_stock, "stock_qty": total_stock, "is_stock_item": is_stock_item}
 	)
 
 
@@ -56,7 +76,7 @@ def adjust_qty_for_expired_items(item_code, stock_qty, warehouse):
 		if not stock_qty[0][0]:
 			break
 
-	return stock_qty
+	return stock_qty[0][0] if stock_qty else 0
 
 
 def get_expired_batches(batches):

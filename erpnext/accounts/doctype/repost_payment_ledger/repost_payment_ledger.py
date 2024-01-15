@@ -26,7 +26,7 @@ def start_payment_ledger_repost(docname=None):
 	"""
 	if docname:
 		repost_doc = frappe.get_doc("Repost Payment Ledger", docname)
-		if repost_doc.docstatus == 1 and repost_doc.repost_status in ["Queued", "Failed"]:
+		if repost_doc.docstatus.is_submitted() and repost_doc.repost_status in ["Queued", "Failed"]:
 			try:
 				for entry in repost_doc.repost_vouchers:
 					doc = frappe.get_doc(entry.voucher_type, entry.voucher_no)
@@ -43,7 +43,7 @@ def start_payment_ledger_repost(docname=None):
 			except Exception as e:
 				frappe.db.rollback()
 
-				traceback = frappe.get_traceback()
+				traceback = frappe.get_traceback(with_context=True)
 				if traceback:
 					message = "Traceback: <br>" + traceback
 					frappe.db.set_value(repost_doc.doctype, repost_doc.name, "repost_error_log", message)
@@ -101,10 +101,9 @@ def execute_repost_payment_ledger(docname):
 
 	job_name = "payment_ledger_repost_" + docname
 
-	if not frappe.utils.background_jobs.is_job_queued(job_name):
-		frappe.enqueue(
-			method="erpnext.accounts.doctype.repost_payment_ledger.repost_payment_ledger.start_payment_ledger_repost",
-			docname=docname,
-			is_async=True,
-			job_name=job_name,
-		)
+	frappe.enqueue(
+		method="erpnext.accounts.doctype.repost_payment_ledger.repost_payment_ledger.start_payment_ledger_repost",
+		docname=docname,
+		is_async=True,
+		job_name=job_name,
+	)

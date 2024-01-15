@@ -28,6 +28,14 @@ class SubcontractingReceipt(SubcontractingController):
 			},
 		]
 
+	def onload(self):
+		self.set_onload(
+			"backflush_based_on",
+			frappe.db.get_single_value(
+				"Buying Settings", "backflush_raw_materials_of_subcontract_based_on"
+			),
+		)
+
 	def update_status_updater_args(self):
 		if cint(self.is_return):
 			self.status_updater.extend(
@@ -57,11 +65,17 @@ class SubcontractingReceipt(SubcontractingController):
 
 	def before_validate(self):
 		super(SubcontractingReceipt, self).before_validate()
+		self.validate_items_qty()
 		self.set_items_bom()
 		self.set_items_cost_center()
 		self.set_items_expense_account()
 
 	def validate(self):
+		if (
+			frappe.db.get_single_value("Buying Settings", "backflush_raw_materials_of_subcontract_based_on")
+			== "BOM"
+		):
+			self.supplied_items = []
 		super(SubcontractingReceipt, self).validate()
 		self.set_missing_values()
 		self.validate_posting_time()
@@ -100,19 +114,19 @@ class SubcontractingReceipt(SubcontractingController):
 		self.ignore_linked_doctypes = ("GL Entry", "Stock Ledger Entry", "Repost Item Valuation")
 		self.update_status_updater_args()
 		self.update_prevdoc_status()
+		self.set_consumed_qty_in_subcontract_order()
+		self.set_subcontracting_order_status()
 		self.update_stock_ledger()
 		self.make_gl_entries_on_cancel()
 		self.repost_future_sle_and_gle()
-		self.delete_auto_created_batches()
-		self.set_consumed_qty_in_subcontract_order()
-		self.set_subcontracting_order_status()
 		self.update_status()
+		self.delete_auto_created_batches()
 
 	@frappe.whitelist()
 	def set_missing_values(self):
-		self.set_missing_values_in_additional_costs()
-		self.set_missing_values_in_supplied_items()
-		self.set_missing_values_in_items()
+		self.calculate_additional_costs()
+		self.calculate_supplied_items_qty_and_amount()
+		self.calculate_items_qty_and_amount()
 
 	def set_available_qty_for_consumption(self):
 		supplied_items_details = {}
@@ -144,13 +158,13 @@ class SubcontractingReceipt(SubcontractingController):
 					item.rm_item_code, 0
 				)
 
-	def set_missing_values_in_supplied_items(self):
+	def calculate_supplied_items_qty_and_amount(self):
 		for item in self.get("supplied_items") or []:
 			item.amount = item.rate * item.consumed_qty
 
 		self.set_available_qty_for_consumption()
 
-	def set_missing_values_in_items(self):
+	def calculate_items_qty_and_amount(self):
 		rm_supp_cost = {}
 		for item in self.get("supplied_items") or []:
 			if item.reference_name in rm_supp_cost:
@@ -160,15 +174,14 @@ class SubcontractingReceipt(SubcontractingController):
 
 		total_qty = total_amount = 0
 		for item in self.items:
-			if item.name in rm_supp_cost:
+			if item.qty and item.name in rm_supp_cost:
 				item.rm_supp_cost = rm_supp_cost[item.name]
 				item.rm_cost_per_qty = item.rm_supp_cost / item.qty
 				rm_supp_cost.pop(item.name)
 
-			if item.recalculate_rate:
-				item.rate = (
-					flt(item.rm_cost_per_qty) + flt(item.service_cost_per_qty) + flt(item.additional_cost_per_qty)
-				)
+			item.rate = (
+				flt(item.rm_cost_per_qty) + flt(item.service_cost_per_qty) + flt(item.additional_cost_per_qty)
+			)
 
 			item.received_qty = item.qty + flt(item.rejected_qty)
 			item.amount = item.qty * item.rate
@@ -179,22 +192,42 @@ class SubcontractingReceipt(SubcontractingController):
 			self.total = total_amount
 
 	def validate_rejected_warehouse(self):
-		if not self.rejected_warehouse:
-			for item in self.items:
-				if item.rejected_qty:
+		for item in self.items:
+			if flt(item.rejected_qty) and not item.rejected_warehouse:
+				if self.rejected_warehouse:
+					item.rejected_warehouse = self.rejected_warehouse
+
+				if not item.rejected_warehouse:
 					frappe.throw(
-						_("Rejected Warehouse is mandatory against rejected Item {0}").format(item.item_code)
+						_("Row #{0}: Rejected Warehouse is mandatory for the rejected Item {1}").format(
+							item.idx, item.item_code
+						)
 					)
+
+			if item.get("rejected_warehouse") and (item.get("rejected_warehouse") == item.get("warehouse")):
+				frappe.throw(
+					_("Row #{0}: Accepted Warehouse and Rejected Warehouse cannot be same").format(item.idx)
+				)
 
 	def validate_available_qty_for_consumption(self):
 		for item in self.get("supplied_items"):
+			precision = item.precision("consumed_qty")
 			if (
-				item.available_qty_for_consumption and item.available_qty_for_consumption < item.consumed_qty
+				item.available_qty_for_consumption
+				and flt(item.available_qty_for_consumption, precision) - flt(item.consumed_qty, precision) < 0
 			):
+				msg = f"""Row {item.idx}: Consumed Qty {flt(item.consumed_qty, precision)}
+					must be less than or equal to Available Qty For Consumption
+					{flt(item.available_qty_for_consumption, precision)}
+					in Consumed Items Table."""
+
+				frappe.throw(_(msg))
+
+	def validate_items_qty(self):
+		for item in self.items:
+			if not (item.qty or item.rejected_qty):
 				frappe.throw(
-					_(
-						"Row {0}: Consumed Qty must be less than or equal to Available Qty For Consumption in Consumed Items Table."
-					).format(item.idx)
+					_("Row {0}: Accepted Qty and Rejected Qty can't be zero at the same time.").format(item.idx)
 				)
 
 	def set_items_bom(self):
@@ -232,25 +265,35 @@ class SubcontractingReceipt(SubcontractingController):
 					item.expense_account = expense_account
 
 	def update_status(self, status=None, update_modified=False):
-		if self.docstatus >= 1 and not status:
-			if self.docstatus == 1:
+		if not status:
+			if self.docstatus == 0:
+				status = "Draft"
+			elif self.docstatus == 1:
+				status = "Completed"
+
 				if self.is_return:
 					status = "Return"
-					return_against = frappe.get_doc("Subcontracting Receipt", self.return_against)
-					return_against.run_method("update_status")
-				else:
-					if self.per_returned == 100:
-						status = "Return Issued"
-					elif self.status == "Draft":
-						status = "Completed"
+				elif self.per_returned == 100:
+					status = "Return Issued"
+
 			elif self.docstatus == 2:
 				status = "Cancelled"
 
+			if self.is_return:
+				frappe.get_doc("Subcontracting Receipt", self.return_against).update_status(
+					update_modified=update_modified
+				)
+
 		if status:
-			frappe.db.set_value("Subcontracting Receipt", self.name, "status", status, update_modified)
+			frappe.db.set_value(
+				"Subcontracting Receipt", self.name, "status", status, update_modified=update_modified
+			)
 
 	def get_gl_entries(self, warehouse_account=None):
 		from erpnext.accounts.general_ledger import process_gl_map
+
+		if not erpnext.is_perpetual_inventory_enabled(self.company):
+			return []
 
 		gl_entries = []
 		self.make_item_gl_entries(gl_entries, warehouse_account)
@@ -258,9 +301,7 @@ class SubcontractingReceipt(SubcontractingController):
 		return process_gl_map(gl_entries)
 
 	def make_item_gl_entries(self, gl_entries, warehouse_account=None):
-		if erpnext.is_perpetual_inventory_enabled(self.company):
-			stock_rbnb = self.get_company_default("stock_received_but_not_billed")
-			expenses_included_in_valuation = self.get_company_default("expenses_included_in_valuation")
+		stock_rbnb = self.get_company_default("stock_received_but_not_billed")
 
 		warehouse_with_no_account = []
 
@@ -332,10 +373,7 @@ class SubcontractingReceipt(SubcontractingController):
 					divisional_loss = flt(item.amount - stock_value_diff, item.precision("amount"))
 
 					if divisional_loss:
-						if self.is_return:
-							loss_account = expenses_included_in_valuation
-						else:
-							loss_account = item.expense_account
+						loss_account = item.expense_account
 
 						self.add_gl_entry(
 							gl_entries=gl_entries,

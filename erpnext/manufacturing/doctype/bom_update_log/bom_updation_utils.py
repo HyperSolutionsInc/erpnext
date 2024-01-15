@@ -86,10 +86,12 @@ def get_ancestor_boms(new_bom: str, bom_list: Optional[List] = None) -> List:
 		if new_bom == d.parent:
 			frappe.throw(_("BOM recursion: {0} cannot be child of {1}").format(new_bom, d.parent))
 
-		bom_list.append(d.parent)
+		if d.parent not in tuple(bom_list):
+			bom_list.append(d.parent)
+
 		get_ancestor_boms(d.parent, bom_list)
 
-	return list(set(bom_list))
+	return bom_list
 
 
 def update_new_bom_in_bom_items(unit_cost: float, current_bom: str, new_bom: str) -> None:
@@ -157,12 +159,19 @@ def get_next_higher_level_boms(
 def get_leaf_boms() -> List[str]:
 	"Get BOMs that have no dependencies."
 
-	return frappe.db.sql_list(
-		"""select name from `tabBOM` bom
-		where docstatus=1 and is_active=1
-			and not exists(select bom_no from `tabBOM Item`
-				where parent=bom.name and ifnull(bom_no, '')!='')"""
-	)
+	bom = frappe.qb.DocType("BOM")
+	bom_item = frappe.qb.DocType("BOM Item")
+
+	boms = (
+		frappe.qb.from_(bom)
+		.left_join(bom_item)
+		.on((bom.name == bom_item.parent) & (bom_item.bom_no != ""))
+		.select(bom.name)
+		.where((bom.docstatus == 1) & (bom.is_active == 1) & (bom_item.bom_no.isnull()))
+		.distinct()
+	).run(pluck=True)
+
+	return boms
 
 
 def _generate_dependence_map() -> defaultdict:

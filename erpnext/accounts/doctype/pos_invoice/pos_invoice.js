@@ -112,7 +112,8 @@ erpnext.selling.POSInvoiceController = class POSInvoiceController extends erpnex
 				party_type: "Customer",
 				account: this.frm.doc.debit_to,
 				price_list: this.frm.doc.selling_price_list,
-				pos_profile: pos_profile
+				pos_profile: pos_profile,
+				company_address: this.frm.doc.company_address
 			}, () => {
 				this.apply_pricing_rule();
 			});
@@ -129,6 +130,7 @@ erpnext.selling.POSInvoiceController = class POSInvoiceController extends erpnex
 			args: { "pos_profile": frm.pos_profile },
 			callback: ({ message: profile }) => {
 				this.update_customer_groups_settings(profile?.customer_groups);
+				this.frm.set_value("company", profile?.company);
 			},
 		});
 	}

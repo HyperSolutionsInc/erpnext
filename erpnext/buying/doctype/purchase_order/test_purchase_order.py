@@ -10,12 +10,13 @@ from frappe.utils import add_days, flt, getdate, nowdate
 from frappe.utils.data import today
 
 from erpnext.accounts.doctype.payment_entry.payment_entry import get_payment_entry
+from erpnext.accounts.party import get_due_date_from_template
 from erpnext.buying.doctype.purchase_order.purchase_order import make_inter_company_sales_order
 from erpnext.buying.doctype.purchase_order.purchase_order import (
 	make_purchase_invoice as make_pi_from_po,
 )
 from erpnext.buying.doctype.purchase_order.purchase_order import make_purchase_receipt
-from erpnext.controllers.accounts_controller import update_child_qty_rate
+from erpnext.controllers.accounts_controller import InvalidQtyError, update_child_qty_rate
 from erpnext.manufacturing.doctype.blanket_order.test_blanket_order import make_blanket_order
 from erpnext.stock.doctype.item.test_item import make_item
 from erpnext.stock.doctype.material_request.material_request import make_purchase_order
@@ -26,6 +27,21 @@ from erpnext.stock.doctype.purchase_receipt.purchase_receipt import (
 
 
 class TestPurchaseOrder(FrappeTestCase):
+	def test_purchase_order_qty(self):
+		po = create_purchase_order(qty=1, do_not_save=True)
+		po.append(
+			"items",
+			{
+				"item_code": "_Test Item",
+				"qty": -1,
+				"rate": 10,
+			},
+		)
+		self.assertRaises(frappe.NonNegativeError, po.save)
+
+		po.items[1].qty = 0
+		self.assertRaises(InvalidQtyError, po.save)
+
 	def test_make_purchase_receipt(self):
 		po = create_purchase_order(do_not_submit=True)
 		self.assertRaises(frappe.ValidationError, make_purchase_receipt, po.name)
@@ -685,6 +701,12 @@ class TestPurchaseOrder(FrappeTestCase):
 			else:
 				raise Exception
 
+	def test_default_payment_terms(self):
+		due_date = get_due_date_from_template(
+			"_Test Payment Term Template 1", "2023-02-03", None
+		).strftime("%Y-%m-%d")
+		self.assertEqual(due_date, "2023-03-31")
+
 	def test_terms_are_not_copied_if_automatically_fetch_payment_terms_is_unchecked(self):
 		po = create_purchase_order(do_not_save=1)
 		po.payment_terms_template = "_Test Payment Term Template"
@@ -743,9 +765,9 @@ class TestPurchaseOrder(FrappeTestCase):
 		pe = get_payment_entry("Purchase Order", po_doc.name)
 		pe.mode_of_payment = "Cash"
 		pe.paid_from = "Cash - _TC"
-		pe.source_exchange_rate = 80
-		pe.target_exchange_rate = 1
-		pe.paid_amount = po_doc.grand_total
+		pe.source_exchange_rate = 1
+		pe.target_exchange_rate = 80
+		pe.paid_amount = po_doc.base_grand_total
 		pe.save(ignore_permissions=True)
 		pe.submit()
 
@@ -889,6 +911,11 @@ class TestPurchaseOrder(FrappeTestCase):
 		self.assertEqual(po.status, "Completed")
 		self.assertEqual(mr.status, "Received")
 
+	def test_variant_item_po(self):
+		po = create_purchase_order(item_code="_Test Variant Item", qty=1, rate=100, do_not_save=1)
+
+		self.assertRaises(frappe.ValidationError, po.save)
+
 
 def prepare_data_for_internal_transfer():
 	from erpnext.accounts.doctype.sales_invoice.test_sales_invoice import create_internal_supplier
@@ -994,8 +1021,8 @@ def create_purchase_order(**args):
 			},
 		)
 
-	po.set_missing_values()
 	if not args.do_not_save:
+		po.set_missing_values()
 		po.insert()
 		if not args.do_not_submit:
 			if po.is_subcontracted:

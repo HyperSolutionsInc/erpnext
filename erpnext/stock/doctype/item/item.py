@@ -164,10 +164,7 @@ class Item(Document):
 		if not self.is_stock_item or self.has_serial_no or self.has_batch_no:
 			return
 
-		if not self.valuation_rate and self.standard_rate:
-			self.valuation_rate = self.standard_rate
-
-		if not self.valuation_rate and not self.is_customer_provided_item:
+		if not self.valuation_rate and not self.standard_rate and not self.is_customer_provided_item:
 			frappe.throw(_("Valuation Rate is mandatory if Opening Stock entered"))
 
 		from erpnext.stock.doctype.stock_entry.stock_entry_utils import make_stock_entry
@@ -192,7 +189,7 @@ class Item(Document):
 					item_code=self.name,
 					target=default_warehouse,
 					qty=self.opening_stock,
-					rate=self.valuation_rate,
+					rate=self.valuation_rate or self.standard_rate,
 					company=default.company,
 					posting_date=getdate(),
 					posting_time=nowtime(),
@@ -279,11 +276,11 @@ class Item(Document):
 				frappe.throw(_("Row #{0}: Maximum Net Rate cannot be greater than Minimum Net Rate"))
 
 	def update_template_tables(self):
-		template = frappe.get_doc("Item", self.variant_of)
+		template = frappe.get_cached_doc("Item", self.variant_of)
 
 		# add item taxes from template
 		for d in template.get("taxes"):
-			self.append("taxes", {"item_tax_template": d.item_tax_template})
+			self.append("taxes", d)
 
 		# copy re-order table if empty
 		if not self.get("reorder_levels"):
@@ -353,10 +350,15 @@ class Item(Document):
 		check_list = []
 		for d in self.get("taxes"):
 			if d.item_tax_template:
-				if d.item_tax_template in check_list:
-					frappe.throw(_("{0} entered twice in Item Tax").format(d.item_tax_template))
+				if (d.item_tax_template, d.tax_category) in check_list:
+					frappe.throw(
+						_("{0} entered twice {1} in Item Taxes").format(
+							frappe.bold(d.item_tax_template),
+							"for tax category {0}".format(frappe.bold(d.tax_category)) if d.tax_category else "",
+						)
+					)
 				else:
-					check_list.append(d.item_tax_template)
+					check_list.append((d.item_tax_template, d.tax_category))
 
 	def validate_barcode(self):
 		from stdnum import ean
@@ -393,16 +395,16 @@ class Item(Document):
 
 	def validate_warehouse_for_reorder(self):
 		"""Validate Reorder level table for duplicate and conditional mandatory"""
-		warehouse = []
+		warehouse_material_request_type: list[tuple[str, str]] = []
 		for d in self.get("reorder_levels"):
 			if not d.warehouse_group:
 				d.warehouse_group = d.warehouse
-			if d.get("warehouse") and d.get("warehouse") not in warehouse:
-				warehouse += [d.get("warehouse")]
+			if (d.get("warehouse"), d.get("material_request_type")) not in warehouse_material_request_type:
+				warehouse_material_request_type += [(d.get("warehouse"), d.get("material_request_type"))]
 			else:
 				frappe.throw(
-					_("Row {0}: An Reorder entry already exists for this warehouse {1}").format(
-						d.idx, d.warehouse
+					_("Row #{0}: A reorder entry already exists for warehouse {1} with reorder type {2}.").format(
+						d.idx, d.warehouse, d.material_request_type
 					),
 					DuplicateReorderRows,
 				)
@@ -540,8 +542,12 @@ class Item(Document):
 
 	def validate_duplicate_product_bundles_before_merge(self, old_name, new_name):
 		"Block merge if both old and new items have product bundles."
-		old_bundle = frappe.get_value("Product Bundle", filters={"new_item_code": old_name})
-		new_bundle = frappe.get_value("Product Bundle", filters={"new_item_code": new_name})
+		old_bundle = frappe.get_value(
+			"Product Bundle", filters={"new_item_code": old_name, "disabled": 0}
+		)
+		new_bundle = frappe.get_value(
+			"Product Bundle", filters={"new_item_code": new_name, "disabled": 0}
+		)
 
 		if old_bundle and new_bundle:
 			bundle_link = get_link_to_form("Product Bundle", old_bundle)
@@ -712,6 +718,7 @@ class Item(Document):
 						template=self,
 						now=frappe.flags.in_test,
 						timeout=600,
+						enqueue_after_commit=True,
 					)
 
 	def validate_has_variants(self):

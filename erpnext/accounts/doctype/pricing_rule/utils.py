@@ -521,7 +521,7 @@ def get_qty_amount_data_for_cumulative(pr_doc, doc, items=None):
 		values.extend(warehouses)
 
 	if items:
-		condition = " and `tab{child_doc}`.{apply_on} in ({items})".format(
+		condition += " and `tab{child_doc}`.{apply_on} in ({items})".format(
 			child_doc=child_doctype, apply_on=apply_on, items=",".join(["%s"] * len(items))
 		)
 
@@ -681,11 +681,21 @@ def get_product_discount_rule(pricing_rule, item_details, args=None, doc=None):
 
 def apply_pricing_rule_for_free_items(doc, pricing_rule_args):
 	if pricing_rule_args:
-		items = tuple((d.item_code, d.pricing_rules) for d in doc.items if d.is_free_item)
+		args = {(d["item_code"], d["pricing_rules"]): d for d in pricing_rule_args}
 
-		for args in pricing_rule_args:
-			if not items or (args.get("item_code"), args.get("pricing_rules")) not in items:
-				doc.append("items", args)
+		for item in doc.items:
+			if not item.is_free_item:
+				continue
+
+			free_item_data = args.get((item.item_code, item.pricing_rules))
+			if free_item_data:
+				free_item_data.pop("item_name")
+				free_item_data.pop("description")
+				item.update(free_item_data)
+				args.pop((item.item_code, item.pricing_rules))
+
+		for free_item in args.values():
+			doc.append("items", free_item)
 
 
 def get_pricing_rule_items(pr_doc, other_items=False) -> list:

@@ -18,6 +18,10 @@ class BalanceMismatchError(frappe.ValidationError):
 	pass
 
 
+class InvalidAccountMergeError(frappe.ValidationError):
+	pass
+
+
 class Account(NestedSet):
 	nsm_parent_field = "parent_account"
 
@@ -201,8 +205,11 @@ class Account(NestedSet):
 				)
 
 	def validate_account_currency(self):
+		self.currency_explicitly_specified = True
+
 		if not self.account_currency:
 			self.account_currency = frappe.get_cached_value("Company", self.company, "default_currency")
+			self.currency_explicitly_specified = False
 
 		gl_currency = frappe.db.get_value("GL Entry", {"account": self.name}, "account_currency")
 
@@ -248,8 +255,10 @@ class Account(NestedSet):
 					{
 						"company": company,
 						# parent account's currency should be passed down to child account's curreny
-						# if it is None, it picks it up from default company currency, which might be unintended
-						"account_currency": erpnext.get_company_currency(company),
+						# if currency explicitly specified by user, child will inherit. else, default currency will be used.
+						"account_currency": self.account_currency
+						if self.currency_explicitly_specified
+						else erpnext.get_company_currency(company),
 						"parent_account": parent_acc_name_map[company],
 					}
 				)
@@ -393,7 +402,13 @@ def update_account_number(name, account_name, account_number=None, from_descenda
 
 	if ancestors and not allow_independent_account_creation:
 		for ancestor in ancestors:
-			if frappe.db.get_value("Account", {"account_name": old_acc_name, "company": ancestor}, "name"):
+			old_name = frappe.db.get_value(
+				"Account",
+				{"account_number": old_acc_number, "account_name": old_acc_name, "company": ancestor},
+				"name",
+			)
+
+			if old_name:
 				# same account in parent company exists
 				allow_child_account_creation = _("Allow Account Creation Against Child Company")
 
@@ -433,24 +448,35 @@ def update_account_number(name, account_name, account_number=None, from_descenda
 
 
 @frappe.whitelist()
-def merge_account(old, new, is_group, root_type, company):
+def merge_account(old, new):
 	# Validate properties before merging
-	if not frappe.db.exists("Account", new):
+	new_account = frappe.get_cached_doc("Account", new)
+	old_account = frappe.get_cached_doc("Account", old)
+
+	if not new_account:
 		throw(_("Account {0} does not exist").format(new))
 
-	val = list(frappe.db.get_value("Account", new, ["is_group", "root_type", "company"]))
-
-	if val != [cint(is_group), root_type, company]:
+	if (
+		cint(new_account.is_group),
+		new_account.root_type,
+		new_account.company,
+		cstr(new_account.account_currency),
+	) != (
+		cint(old_account.is_group),
+		old_account.root_type,
+		old_account.company,
+		cstr(old_account.account_currency),
+	):
 		throw(
-			_(
-				"""Merging is only possible if following properties are same in both records. Is Group, Root Type, Company"""
-			)
+			msg=_(
+				"""Merging is only possible if following properties are same in both records. Is Group, Root Type, Company and Account Currency"""
+			),
+			title=("Invalid Accounts"),
+			exc=InvalidAccountMergeError,
 		)
 
-	if is_group and frappe.db.get_value("Account", new, "parent_account") == old:
-		frappe.db.set_value(
-			"Account", new, "parent_account", frappe.db.get_value("Account", old, "parent_account")
-		)
+	if old_account.is_group and new_account.parent_account == old:
+		new_account.db_set("parent_account", frappe.get_cached_value("Account", old, "parent_account"))
 
 	frappe.rename_doc("Account", old, new, merge=1, force=1)
 

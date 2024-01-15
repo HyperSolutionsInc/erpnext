@@ -3,7 +3,10 @@
 
 import frappe
 from frappe import _
-from frappe.contacts.address_and_contact import load_address_and_contact
+from frappe.contacts.address_and_contact import (
+	delete_contact_and_address,
+	load_address_and_contact,
+)
 from frappe.email.inbox import link_communication_to_document
 from frappe.model.mapper import get_mapped_doc
 from frappe.utils import comma_and, get_link_to_form, has_gravatar, validate_email_address
@@ -11,6 +14,7 @@ from frappe.utils import comma_and, get_link_to_form, has_gravatar, validate_ema
 from erpnext.accounts.party import set_taxes
 from erpnext.controllers.selling_controller import SellingController
 from erpnext.crm.utils import CRMNote, copy_comments, link_communications, link_open_events
+from erpnext.selling.doctype.customer.customer import parse_full_name
 
 
 class Lead(SellingController, CRMNote):
@@ -34,7 +38,20 @@ class Lead(SellingController, CRMNote):
 	def before_insert(self):
 		self.contact_doc = None
 		if frappe.db.get_single_value("CRM Settings", "auto_creation_of_contact"):
+			if self.source == "Existing Customer" and self.customer:
+				contact = frappe.db.get_value(
+					"Dynamic Link",
+					{"link_doctype": "Customer", "parenttype": "Contact", "link_name": self.customer},
+					"parent",
+				)
+				if contact:
+					self.contact_doc = frappe.get_doc("Contact", contact)
+					return
 			self.contact_doc = self.create_contact()
+
+		# leads created by email inbox only have the full name set
+		if self.lead_name and not any([self.first_name, self.middle_name, self.last_name]):
+			self.first_name, self.middle_name, self.last_name = parse_full_name(self.lead_name)
 
 	def after_insert(self):
 		self.link_to_contact()
@@ -43,9 +60,8 @@ class Lead(SellingController, CRMNote):
 		self.update_prospect()
 
 	def on_trash(self):
-		frappe.db.sql("""update `tabIssue` set lead='' where lead=%s""", self.name)
-
-		self.unlink_dynamic_links()
+		frappe.db.set_value("Issue", {"lead": self.name}, "lead", None)
+		delete_contact_and_address(self.doctype, self.name)
 		self.remove_link_from_prospect()
 
 	def set_full_name(self):
@@ -122,27 +138,6 @@ class Lead(SellingController, CRMNote):
 			)
 			lead_row.db_update()
 
-	def unlink_dynamic_links(self):
-		links = frappe.get_all(
-			"Dynamic Link",
-			filters={"link_doctype": self.doctype, "link_name": self.name},
-			fields=["parent", "parenttype"],
-		)
-
-		for link in links:
-			linked_doc = frappe.get_doc(link["parenttype"], link["parent"])
-
-			if len(linked_doc.get("links")) == 1:
-				linked_doc.delete(ignore_permissions=True)
-			else:
-				to_remove = None
-				for d in linked_doc.get("links"):
-					if d.link_doctype == self.doctype and d.link_name == self.name:
-						to_remove = d
-				if to_remove:
-					linked_doc.remove(to_remove)
-					linked_doc.save(ignore_permissions=True)
-
 	def remove_link_from_prospect(self):
 		prospects = self.get_linked_prospects()
 
@@ -204,7 +199,7 @@ class Lead(SellingController, CRMNote):
 				"last_name": self.last_name,
 				"salutation": self.salutation,
 				"gender": self.gender,
-				"job_title": self.job_title,
+				"designation": self.job_title,
 				"company_name": self.company_name,
 			}
 		)
@@ -285,6 +280,7 @@ def _make_customer(source_name, target_doc=None, ignore_permissions=False):
 					"contact_no": "phone_1",
 					"fax": "fax_1",
 				},
+				"field_no_map": ["disabled"],
 			}
 		},
 		target_doc,
@@ -393,14 +389,14 @@ def get_lead_details(lead, posting_date=None, company=None):
 		{
 			"territory": lead.territory,
 			"customer_name": lead.company_name or lead.lead_name,
-			"contact_display": " ".join(filter(None, [lead.salutation, lead.lead_name])),
+			"contact_display": " ".join(filter(None, [lead.lead_name])),
 			"contact_email": lead.email_id,
 			"contact_mobile": lead.mobile_no,
 			"contact_phone": lead.phone,
 		}
 	)
 
-	set_address_details(out, lead, "Lead")
+	set_address_details(out, lead, "Lead", company=company)
 
 	taxes_and_charges = set_taxes(
 		None,
